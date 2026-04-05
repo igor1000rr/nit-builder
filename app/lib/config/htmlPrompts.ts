@@ -65,6 +65,7 @@ ${JSON.stringify(params.plan, null, 2)}
 - Никаких ссылок на локальные файлы (.css, .js, .png) — только CDN и inline SVG / emoji.
 - Для изображений используй: Unsplash прямые ссылки (https://images.unsplash.com/photo-ID?w=800) ИЛИ inline SVG плейсхолдеры ИЛИ emoji.
 - Интерактивность — только Alpine.js (CDN: https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js) или vanilla JS в <script>.
+- В шаблоне присутствуют служебные комментарии-маркеры вида <!-- ═══ SECTION: hero ═══ --> и <!-- ═══ END SECTION ═══ -->. Они нужны ТОЛЬКО для твоей навигации по структуре — НЕ копируй их в финальный HTML. Используй их, чтобы точно понять границы секций при удалении/добавлении/замене.
 - Выводи ТОЛЬКО HTML. Без markdown-блоков \`\`\`, без объяснений до или после. Первая строка должна быть <!DOCTYPE html>.`;
 }
 

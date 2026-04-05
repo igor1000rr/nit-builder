@@ -86,3 +86,41 @@ export function calcMaxOutput(provider: ProviderConfig, estimatedInputChars: num
   const available = provider.contextWindow - estimatedInputTokens - 500;
   return Math.max(2000, Math.min(16000, available));
 }
+
+/**
+ * Проверка переполнения контекстного окна.
+ * Возвращает предупреждение если input + желаемый output не помещаются.
+ */
+export function checkContextBudget(
+  provider: ProviderConfig,
+  estimatedInputChars: number,
+  desiredOutputTokens: number = 8000,
+): { ok: boolean; warning?: string; estimatedInputTokens: number } {
+  const estimatedInputTokens = Math.ceil(estimatedInputChars / 3.5);
+  const total = estimatedInputTokens + desiredOutputTokens + 500;
+
+  if (total > provider.contextWindow) {
+    return {
+      ok: false,
+      estimatedInputTokens,
+      warning:
+        `Input (${estimatedInputTokens} tok) + output (${desiredOutputTokens} tok) ` +
+        `превышает контекст модели (${provider.contextWindow} tok). ` +
+        `Рекомендация: включи YaRN в LM Studio (Advanced Configuration → RoPE scaling → yarn) ` +
+        `или выбери модель с большим контекстом.`,
+    };
+  }
+
+  // Предупреждение если занимаем >80% контекста — работает, но YaRN улучшит качество
+  if (total > provider.contextWindow * 0.8) {
+    return {
+      ok: true,
+      estimatedInputTokens,
+      warning:
+        `Контекст занят на ${Math.round((total / provider.contextWindow) * 100)}%. ` +
+        `Для стабильности рассмотри YaRN scaling в LM Studio.`,
+    };
+  }
+
+  return { ok: true, estimatedInputTokens };
+}

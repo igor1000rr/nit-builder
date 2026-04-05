@@ -9,8 +9,8 @@ import {
   getTemplateById,
   getFallbackTemplate,
 } from "~/lib/config/htmlTemplatesCatalog";
-import { loadTemplateHtml } from "~/lib/config/htmlTemplates.server";
-import { getPreferredProvider, getModel, calcMaxOutput } from "~/lib/llm/client";
+import { loadTemplateHtmlForLlm } from "~/lib/config/htmlTemplates.server";
+import { getPreferredProvider, getModel, calcMaxOutput, checkContextBudget } from "~/lib/llm/client";
 import { sanitizeUserMessage } from "~/lib/utils/promptSanitizer";
 import { updateSessionHtml, type SessionMemory } from "~/lib/services/sessionMemory";
 import { logger } from "~/lib/utils/logger";
@@ -35,17 +35,29 @@ function stripCodeFences(text: string): string {
   // Стратегия 1: если нашли <!DOCTYPE html> и </html> — берём всё между ними.
   // Это работает даже если LLM добавила префикс "Вот HTML:" или постфикс.
   const doctypeMatch = text.match(/<!DOCTYPE\s+html[\s\S]*?<\/html>/i);
-  if (doctypeMatch) return doctypeMatch[0].trim();
+  let extracted = doctypeMatch?.[0];
 
-  // Стратегия 2: если DOCTYPE нет, но есть <html>...</html> — берём это.
-  const htmlMatch = text.match(/<html[\s\S]*?<\/html>/i);
-  if (htmlMatch) return htmlMatch[0].trim();
+  if (!extracted) {
+    // Стратегия 2: если DOCTYPE нет, но есть <html>...</html> — берём это.
+    const htmlMatch = text.match(/<html[\s\S]*?<\/html>/i);
+    extracted = htmlMatch?.[0];
+  }
 
-  // Стратегия 3 (fallback): срезаем markdown fences по старинке.
-  return text
-    .replace(/^```html\s*/im, "")
-    .replace(/^```\s*/m, "")
-    .replace(/```\s*$/m, "")
+  if (!extracted) {
+    // Стратегия 3 (fallback): срезаем markdown fences по старинке.
+    extracted = text
+      .replace(/^```html\s*/im, "")
+      .replace(/^```\s*/m, "")
+      .replace(/```\s*$/m, "")
+      .trim();
+  }
+
+  // Safety net: удаляем LLM-facing маркеры секций, если модель их скопировала.
+  // Они предназначены только для навигации внутри prompt'а.
+  return extracted
+    .replace(/\s*<!--\s*═══\s*SECTION:[^>]*-->\s*/g, "\n")
+    .replace(/\s*<!--\s*═══\s*END\s+SECTION\s*═══\s*-->\s*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -124,7 +136,7 @@ export async function* executeHtmlSimple(
   }
 
   const template = getTemplateById(plan.suggested_template_id) ?? getFallbackTemplate();
-  const templateHtml = loadTemplateHtml(template.id);
+  const templateHtml = loadTemplateHtmlForLlm(template.id);
   memory.templateId = template.id;
 
   yield { type: "template_selected", templateId: template.id, templateName: template.name };
@@ -138,6 +150,14 @@ export async function* executeHtmlSimple(
 
   try {
     const estimatedInput = templateHtml.length + JSON.stringify(plan).length + 2000;
+    const budget = checkContextBudget(provider, estimatedInput, 8000);
+    if (budget.warning) {
+      logger.warn(SCOPE, budget.warning);
+    }
+    if (!budget.ok) {
+      yield { type: "error", message: budget.warning ?? "Context overflow" };
+      return;
+    }
     const maxOutput = calcMaxOutput(provider, estimatedInput);
 
     const result = await streamText({

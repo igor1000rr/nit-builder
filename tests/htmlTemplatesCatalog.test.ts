@@ -5,7 +5,7 @@ import {
   getFallbackTemplate,
   buildCatalogForPrompt,
 } from "~/lib/config/htmlTemplatesCatalog";
-import { loadTemplateHtml } from "~/lib/config/htmlTemplates.server";
+import { loadTemplateHtml, loadTemplateHtmlForLlm } from "~/lib/config/htmlTemplates.server";
 
 describe("htmlTemplatesCatalog", () => {
   it("contains exactly 16 templates", () => {
@@ -98,6 +98,41 @@ describe("loadTemplateHtml (server)", () => {
   it("caches loaded templates (same object returned on subsequent calls)", () => {
     const first = loadTemplateHtml("coffee-shop");
     const second = loadTemplateHtml("coffee-shop");
+    expect(first).toBe(second);
+  });
+});
+
+describe("loadTemplateHtmlForLlm (annotated)", () => {
+  it("adds section markers around <section id> blocks", () => {
+    const annotated = loadTemplateHtmlForLlm("coffee-shop");
+    expect(annotated).toContain("SECTION: hero");
+    expect(annotated).toContain("END SECTION");
+  });
+
+  it("preserves original HTML structure", () => {
+    const annotated = loadTemplateHtmlForLlm("coffee-shop");
+    expect(annotated).toContain("<!DOCTYPE html>");
+    expect(annotated).toContain("</html>");
+    expect(annotated).toContain("tailwindcss");
+  });
+
+  it("annotated version is larger than raw (due to markers)", () => {
+    const raw = loadTemplateHtml("coffee-shop");
+    const annotated = loadTemplateHtmlForLlm("coffee-shop");
+    expect(annotated.length).toBeGreaterThan(raw.length);
+  });
+
+  it("marker count matches section count", () => {
+    const raw = loadTemplateHtml("coffee-shop");
+    const sectionCount = (raw.match(/<section\s+id="/g) ?? []).length;
+    const annotated = loadTemplateHtmlForLlm("coffee-shop");
+    const markerCount = (annotated.match(/SECTION:/g) ?? []).length;
+    expect(markerCount).toBe(sectionCount);
+  });
+
+  it("caches annotated results independently", () => {
+    const first = loadTemplateHtmlForLlm("blank-landing");
+    const second = loadTemplateHtmlForLlm("blank-landing");
     expect(first).toBe(second);
   });
 });

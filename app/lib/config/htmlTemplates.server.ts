@@ -29,6 +29,7 @@ function resolveHtmlDir(): string {
 
 const HTML_DIR = resolveHtmlDir();
 const htmlCache = new Map<string, string>();
+const annotatedCache = new Map<string, string>();
 
 export function loadTemplateHtml(id: string): string {
   if (htmlCache.has(id)) return htmlCache.get(id)!;
@@ -50,4 +51,36 @@ export function loadTemplateHtml(id: string): string {
 
   // Последний fallback — встроенный минимальный HTML
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Template not found</title></head><body><h1>Шаблон ${id} не найден</h1></body></html>`;
+}
+
+/**
+ * Возвращает вариант шаблона с LLM-friendly маркерами секций.
+ *
+ * Мотивация: модели с длинным контекстом (особенно когда задействован YaRN
+ * или другое масштабирование RoPE) лучше удерживают связи между секциями,
+ * если они отмечены явными якорями. Модель реже путается какой </div>
+ * закрывать, реже теряет секции из плана, и лучше сохраняет структуру
+ * при адаптации.
+ *
+ * Маркеры добавляются ТОЛЬКО в копию, которая идёт в prompt LLM.
+ * Модель сгенерирует свой чистый HTML без этих маркеров — она видит их
+ * как инструкцию, а не как часть шаблона для копирования (это явно
+ * указано в Coder-промпте).
+ */
+export function loadTemplateHtmlForLlm(id: string): string {
+  if (annotatedCache.has(id)) return annotatedCache.get(id)!;
+
+  const raw = loadTemplateHtml(id);
+  const annotated = raw.replace(
+    /<section\s+id="([^"]+)"([^>]*)>/g,
+    (_, sectionId, rest) => {
+      return `<!-- ═══ SECTION: ${sectionId} ═══ -->\n<section id="${sectionId}"${rest}>`;
+    },
+  ).replace(
+    /<\/section>/g,
+    "</section>\n<!-- ═══ END SECTION ═══ -->",
+  );
+
+  annotatedCache.set(id, annotated);
+  return annotated;
 }

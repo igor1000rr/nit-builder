@@ -82,6 +82,8 @@ npm run dev
 4. Проверь `LMSTUDIO_BASE_URL=http://localhost:1234` в `.env`
 5. `npm run dev` → опиши сайт → готово через ~60 секунд
 
+👉 **Для 8 ГБ видеокарт: читай [Гайд по настройке LM Studio](./docs/lm-studio-guide.md)** — Flash Attention, квантование KV-кэша, расчёт VRAM, troubleshooting, объяснение когда нужен YaRN.
+
 ### Облачный режим (без GPU)
 
 1. Получи бесплатный Groq API ключ

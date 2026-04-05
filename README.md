@@ -82,6 +82,8 @@ Open [http://localhost:5173](http://localhost:5173).
 4. Ensure `LMSTUDIO_BASE_URL=http://localhost:1234` in `.env`
 5. `npm run dev` → describe your site → done in ~60 seconds
 
+👉 **For 8 GB GPUs: see [LM Studio Optimization Guide](./docs/lm-studio-guide.md)** with Flash Attention, KV cache quantization, memory math, and troubleshooting.
+
 ### For cloud mode (no GPU)
 
 1. Get a free Groq API key

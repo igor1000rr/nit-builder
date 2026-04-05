@@ -3,6 +3,7 @@ import {
   getAvailableProviders,
   getPreferredProvider,
   calcMaxOutput,
+  checkContextBudget,
 } from "~/lib/llm/client";
 
 // Snapshot env to restore between tests
@@ -162,6 +163,55 @@ describe("llm/client", () => {
       const estimatedInput = 10_000 + 500 + 2000;
       const result = calcMaxOutput(provider, estimatedInput);
       expect(result).toBeGreaterThan(10_000); // room for full HTML output
+    });
+  });
+
+  describe("checkContextBudget", () => {
+    const largeProvider = {
+      id: "groq" as const,
+      baseUrl: "https://api.groq.com/openai/v1",
+      apiKey: "test",
+      defaultModel: "llama-3.3-70b",
+      contextWindow: 128_000,
+    };
+    const smallProvider = {
+      id: "lmstudio" as const,
+      baseUrl: "http://localhost:1234/v1",
+      apiKey: "lm-studio",
+      defaultModel: "tiny-3b",
+      contextWindow: 8_000,
+    };
+
+    it("passes when input fits comfortably", () => {
+      const result = checkContextBudget(largeProvider, 10_000, 4000);
+      expect(result.ok).toBe(true);
+      expect(result.warning).toBeUndefined();
+    });
+
+    it("warns at >80% context usage but still allows", () => {
+      // 8k context, ~4600 input tokens, 2k output, 500 buffer = 7100 total (88%)
+      // ceil(16000/3.5) = 4572 → 4572 + 2000 + 500 = 7072 → 88% of 8000 → warn + ok
+      const result = checkContextBudget(smallProvider, 16_000, 2000);
+      expect(result.ok).toBe(true);
+      expect(result.warning).toContain("%");
+    });
+
+    it("fails when input+output exceeds context", () => {
+      const result = checkContextBudget(smallProvider, 50_000, 4000);
+      expect(result.ok).toBe(false);
+      expect(result.warning).toContain("превышает контекст");
+      expect(result.warning).toContain("YaRN");
+    });
+
+    it("returns estimated input tokens for monitoring", () => {
+      const result = checkContextBudget(largeProvider, 3500, 2000);
+      expect(result.estimatedInputTokens).toBe(1000); // 3500/3.5 = 1000
+    });
+
+    it("references YaRN in overflow warning (helps user fix it)", () => {
+      const result = checkContextBudget(smallProvider, 100_000, 8000);
+      expect(result.ok).toBe(false);
+      expect(result.warning).toMatch(/YaRN|scaling/i);
     });
   });
 });

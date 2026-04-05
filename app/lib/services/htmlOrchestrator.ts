@@ -14,6 +14,7 @@ import { getPreferredProvider, getModel, calcMaxOutput, checkContextBudget } fro
 import { sanitizeUserMessage } from "~/lib/utils/promptSanitizer";
 import { updateSessionHtml, type SessionMemory } from "~/lib/services/sessionMemory";
 import { logger } from "~/lib/utils/logger";
+import { metrics } from "~/lib/services/metrics";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -78,6 +79,8 @@ export async function* executeHtmlSimple(
 
   const sanitized = sanitizeUserMessage(userMessage);
   const model = getModel(provider);
+  const startMs = Date.now();
+  metrics.generationStarted("create", provider.id);
 
   yield {
     type: "step_start",
@@ -129,8 +132,7 @@ export async function* executeHtmlSimple(
     yield { type: "plan_ready", plan };
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
-    // Сюда попадают только реальные сетевые/LLM ошибки (сам generateText упал),
-    // а не ошибки парсинга плана — те уходят в fallback выше.
+    metrics.generationFailed("create", "planner_error");
     yield { type: "error", message: `Ошибка планировщика: ${(err as Error).message}` };
     return;
   }
@@ -140,6 +142,7 @@ export async function* executeHtmlSimple(
   memory.templateId = template.id;
 
   yield { type: "template_selected", templateId: template.id, templateName: template.name };
+  metrics.templateSelected(template.id);
 
   yield {
     type: "step_start",
@@ -155,6 +158,7 @@ export async function* executeHtmlSimple(
       logger.warn(SCOPE, budget.warning);
     }
     if (!budget.ok) {
+      metrics.generationFailed("create", "context_overflow");
       yield { type: "error", message: budget.warning ?? "Context overflow" };
       return;
     }
@@ -176,10 +180,15 @@ export async function* executeHtmlSimple(
     }
 
     fullHtml = stripCodeFences(fullHtml);
+    // Update both local reference (for tests) and global session cache (for production)
+    memory.currentHtml = fullHtml;
+    memory.updatedAt = Date.now();
     updateSessionHtml(memory.sessionId, fullHtml);
+    metrics.generationCompleted("create", provider.id, Date.now() - startMs);
     yield { type: "step_complete", html: fullHtml };
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
+    metrics.generationFailed("create", "coder_error");
     yield { type: "error", message: `Ошибка кодера: ${(err as Error).message}` };
   }
 }
@@ -202,6 +211,9 @@ export async function* executeHtmlPolish(
   }
 
   const model = getModel(provider);
+  const startMs = Date.now();
+  metrics.generationStarted("polish", provider.id);
+
   yield {
     type: "step_start",
     roleName: "Полировщик",
@@ -232,10 +244,14 @@ export async function* executeHtmlPolish(
     }
 
     fullHtml = stripCodeFences(fullHtml);
+    memory.currentHtml = fullHtml;
+    memory.updatedAt = Date.now();
     updateSessionHtml(memory.sessionId, fullHtml);
+    metrics.generationCompleted("polish", provider.id, Date.now() - startMs);
     yield { type: "step_complete", html: fullHtml };
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
+    metrics.generationFailed("polish", "polisher_error");
     yield { type: "error", message: `Ошибка полировщика: ${(err as Error).message}` };
   }
 }

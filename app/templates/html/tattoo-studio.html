@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INK & SOUL — тату-студия</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.05em; }
+  .grain { background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.03) 1px, transparent 1px); background-size: 4px 4px; }
+</style>
+</head>
+<body class="bg-neutral-950 text-neutral-100 grain">
+
+<nav x-data="{open:false}" class="fixed w-full top-0 z-50 bg-neutral-950/95 backdrop-blur border-b border-neutral-800">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="#" class="font-display text-3xl">🖤 INK & SOUL</a>
+    <div class="hidden md:flex gap-8 text-xs uppercase tracking-[0.2em] font-medium">
+      <a href="#artists" class="hover:text-red-500 transition">Мастера</a>
+      <a href="#gallery" class="hover:text-red-500 transition">Работы</a>
+      <a href="#styles" class="hover:text-red-500 transition">Стили</a>
+      <a href="#booking" class="hover:text-red-500 transition">Запись</a>
+    </div>
+    <a href="#booking" class="hidden md:inline-block px-5 py-2 bg-red-600 text-white uppercase tracking-wider text-xs font-bold hover:bg-red-500 transition">Записаться</a>
+    <button @click="open=!open" class="md:hidden"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  </div>
+  <div x-show="open" class="md:hidden border-t border-neutral-800 px-6 py-4 space-y-3 uppercase tracking-widest text-sm"><a href="#artists" class="block">Мастера</a><a href="#gallery" class="block">Работы</a><a href="#styles" class="block">Стили</a><a href="#booking" class="block">Запись</a></div>
+</nav>
+
+<section id="hero" class="pt-24 min-h-screen flex items-center px-6 relative overflow-hidden">
+  <div class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1611501275019-9b5cda994e8d?w=1600')] bg-cover bg-center opacity-25"></div>
+  <div class="absolute inset-0 bg-gradient-to-r from-neutral-950 via-neutral-950/90 to-transparent"></div>
+  <div class="max-w-6xl mx-auto w-full relative z-10">
+    <div class="h-[2px] w-20 bg-red-600 mb-8"></div>
+    <p class="text-red-500 font-display text-2xl mb-4">С 2012 года</p>
+    <h1 class="font-display text-7xl md:text-[12rem] leading-[0.85] mb-8">ТАТУ,<br>КОТОРУЮ<br><span class="text-red-600">ХОЧЕТСЯ</span><br>НОСИТЬ</h1>
+    <p class="text-xl text-neutral-400 max-w-xl mb-10">Авторские эскизы. Только стерильные инструменты. Мастера с опытом 5+ лет в blackwork, graphic и realism.</p>
+    <div class="flex flex-wrap gap-4">
+      <a href="#booking" class="px-10 py-5 bg-red-600 text-white font-display text-xl hover:bg-red-500 transition">НАПИСАТЬ МАСТЕРУ</a>
+      <a href="#gallery" class="px-10 py-5 border-2 border-neutral-700 font-display text-xl hover:border-white transition">СМОТРЕТЬ РАБОТЫ</a>
+    </div>
+  </div>
+</section>
+
+<section id="artists" class="py-24 px-6 border-t border-neutral-900">
+  <div class="max-w-6xl mx-auto">
+    <div class="h-[2px] w-20 bg-red-600 mb-6"></div>
+    <h2 class="font-display text-6xl md:text-8xl mb-16">НАШИ<br><span class="text-red-600">МАСТЕРА</span></h2>
+    <div class="grid md:grid-cols-3 gap-8">
+      <div class="group">
+        <div class="relative overflow-hidden mb-5 aspect-[3/4]">
+          <img src="https://images.unsplash.com/photo-1581044777550-4cfa60707c03?w=600" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+          <div class="absolute inset-0 bg-gradient-to-t from-neutral-950 to-transparent"></div>
+        </div>
+        <h3 class="font-display text-3xl">ALEX WOLF</h3>
+        <p class="text-red-500 text-xs uppercase tracking-widest mt-1">Blackwork · 7 лет</p>
+      </div>
+      <div class="group">
+        <div class="relative overflow-hidden mb-5 aspect-[3/4]">
+          <img src="https://images.unsplash.com/photo-1519699047748-de8e457a634e?w=600" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+          <div class="absolute inset-0 bg-gradient-to-t from-neutral-950 to-transparent"></div>
+        </div>
+        <h3 class="font-display text-3xl">MARINA SKY</h3>
+        <p class="text-red-500 text-xs uppercase tracking-widest mt-1">Fine line · 5 лет</p>
+      </div>
+      <div class="group">
+        <div class="relative overflow-hidden mb-5 aspect-[3/4]">
+          <img src="https://images.unsplash.com/photo-1485872299829-c673f5194813?w=600" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+          <div class="absolute inset-0 bg-gradient-to-t from-neutral-950 to-transparent"></div>
+        </div>
+        <h3 class="font-display text-3xl">DIMA STORM</h3>
+        <p class="text-red-500 text-xs uppercase tracking-widest mt-1">Realism · 9 лет</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="styles" class="py-24 px-6 border-t border-neutral-900">
+  <div class="max-w-6xl mx-auto">
+    <div class="h-[2px] w-20 bg-red-600 mb-6"></div>
+    <h2 class="font-display text-6xl md:text-8xl mb-16">СТИЛИ</h2>
+    <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div class="p-8 border border-neutral-800 hover:border-red-600 hover:bg-red-600/5 transition cursor-pointer">
+        <div class="text-5xl mb-4">⚡</div>
+        <h3 class="font-display text-2xl mb-2">BLACKWORK</h3>
+        <p class="text-neutral-500 text-sm">Плотный чёрный, геометрия, орнаменты</p>
+      </div>
+      <div class="p-8 border border-neutral-800 hover:border-red-600 hover:bg-red-600/5 transition cursor-pointer">
+        <div class="text-5xl mb-4">✨</div>
+        <h3 class="font-display text-2xl mb-2">FINE LINE</h3>
+        <p class="text-neutral-500 text-sm">Тонкие линии, минимализм, микро-тату</p>
+      </div>
+      <div class="p-8 border border-neutral-800 hover:border-red-600 hover:bg-red-600/5 transition cursor-pointer">
+        <div class="text-5xl mb-4">🎨</div>
+        <h3 class="font-display text-2xl mb-2">REALISM</h3>
+        <p class="text-neutral-500 text-sm">Портреты, природа, детализация</p>
+      </div>
+      <div class="p-8 border border-neutral-800 hover:border-red-600 hover:bg-red-600/5 transition cursor-pointer">
+        <div class="text-5xl mb-4">🌊</div>
+        <h3 class="font-display text-2xl mb-2">WATERCOLOR</h3>
+        <p class="text-neutral-500 text-sm">Акварельные эффекты, брызги, цвет</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="gallery" class="py-24 px-6 border-t border-neutral-900 bg-neutral-900/30">
+  <div class="max-w-6xl mx-auto">
+    <div class="h-[2px] w-20 bg-red-600 mb-6"></div>
+    <h2 class="font-display text-6xl md:text-8xl mb-16">ПОРТФОЛИО</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <img src="https://images.unsplash.com/photo-1565058379802-bbe93b2f703a?w=500" class="aspect-square object-cover hover:scale-105 transition duration-500">
+      <img src="https://images.unsplash.com/photo-1586074299757-dc655f18518c?w=500" class="aspect-square object-cover hover:scale-105 transition duration-500">
+      <img src="https://images.unsplash.com/photo-1611501275019-9b5cda994e8d?w=500" class="aspect-square object-cover hover:scale-105 transition duration-500">
+      <img src="https://images.unsplash.com/photo-1519699047748-de8e457a634e?w=500" class="aspect-square object-cover hover:scale-105 transition duration-500">
+      <img src="https://images.unsplash.com/photo-1581044777550-4cfa60707c03?w=500" class="aspect-square object-cover hover:scale-105 transition duration-500">
+      <img src="https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?w=500" class="aspect-square object-cover hover:scale-105 transition duration-500">
+      <img src="https://images.unsplash.com/photo-1611501275019-9b5cda994e8d?w=500" class="aspect-square object-cover hover:scale-105 transition duration-500">
+      <img src="https://images.unsplash.com/photo-1542856391-010fb87dcfed?w=500" class="aspect-square object-cover hover:scale-105 transition duration-500">
+    </div>
+  </div>
+</section>
+
+<section id="booking" class="py-24 px-6 border-t border-neutral-900 bg-red-600 text-black">
+  <div class="max-w-4xl mx-auto text-center">
+    <h2 class="font-display text-6xl md:text-9xl mb-8 leading-none">ЗАПИСЫВАЙСЯ</h2>
+    <p class="text-xl mb-10 opacity-80">Консультация бесплатно · ул. Октябрьская 16, Минск · Пн-Сб 12:00-22:00</p>
+    <div class="flex flex-wrap justify-center gap-4">
+      <a href="https://t.me/inksoul" class="px-12 py-5 bg-black text-red-600 font-display text-xl hover:bg-neutral-900 transition">TELEGRAM</a>
+      <a href="https://instagram.com/inksoul" class="px-12 py-5 border-4 border-black font-display text-xl hover:bg-black hover:text-red-600 transition">INSTAGRAM</a>
+    </div>
+  </div>
+</section>
+
+<footer class="py-10 px-6 bg-neutral-950 border-t border-neutral-900 text-center">
+  <p class="font-display text-2xl mb-2">🖤 INK & SOUL</p>
+  <p class="text-neutral-500 text-xs uppercase tracking-widest">© 2025 · FEEL THE INK · LIVE THE ART</p>
+</footer>
+
+</body>
+</html>

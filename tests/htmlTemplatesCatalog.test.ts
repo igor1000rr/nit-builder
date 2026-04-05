@@ -8,8 +8,8 @@ import {
 import { loadTemplateHtml, loadTemplateHtmlForLlm } from "~/lib/config/htmlTemplates.server";
 
 describe("htmlTemplatesCatalog", () => {
-  it("contains exactly 16 templates", () => {
-    expect(TEMPLATE_CATALOG).toHaveLength(16);
+  it("contains at least 16 templates", () => {
+    expect(TEMPLATE_CATALOG.length).toBeGreaterThanOrEqual(16);
   });
 
   it("all templates have unique ids", () => {

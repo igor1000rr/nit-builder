@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Дом.Агент — агентство недвижимости</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'DM Serif Display', serif; }
+</style>
+</head>
+<body class="bg-white text-neutral-900">
+
+<nav x-data="{open:false}" class="fixed w-full top-0 z-50 bg-white/95 backdrop-blur border-b border-neutral-100">
+  <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="#" class="font-display text-2xl">🏠 Дом.Агент</a>
+    <div class="hidden md:flex gap-8 text-sm font-medium">
+      <a href="#catalog" class="hover:text-teal-700 transition">Каталог</a>
+      <a href="#services" class="hover:text-teal-700 transition">Услуги</a>
+      <a href="#agents" class="hover:text-teal-700 transition">Агенты</a>
+      <a href="#contact" class="hover:text-teal-700 transition">Контакты</a>
+    </div>
+    <a href="#contact" class="hidden md:inline-block px-5 py-2.5 bg-teal-700 text-white rounded-full text-sm font-semibold hover:bg-teal-800 transition">Консультация</a>
+    <button @click="open=!open" class="md:hidden"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  </div>
+  <div x-show="open" class="md:hidden border-t border-neutral-100 px-6 py-4 space-y-3"><a href="#catalog" class="block">Каталог</a><a href="#services" class="block">Услуги</a><a href="#agents" class="block">Агенты</a><a href="#contact" class="block">Контакты</a></div>
+</nav>
+
+<section id="hero" class="pt-32 pb-20 px-6 relative">
+  <div class="max-w-7xl mx-auto grid md:grid-cols-[1.2fr_1fr] gap-12 items-center">
+    <div>
+      <p class="text-teal-700 font-semibold uppercase tracking-widest text-xs mb-4">Агентство №1 в Минске по отзывам</p>
+      <h1 class="font-display text-5xl md:text-7xl leading-[1.05] mb-6">Найдём дом,<br>в котором вы<br>захотите <em>остаться</em></h1>
+      <p class="text-lg text-neutral-600 max-w-lg mb-8">Покупка, продажа, аренда квартир и домов в Минске и области. Юридическая проверка сделок, ипотечные консультации, бесплатный выезд.</p>
+      <div class="bg-neutral-50 rounded-2xl p-2 flex flex-col sm:flex-row gap-2 max-w-xl border border-neutral-200 shadow-sm">
+        <select class="flex-1 px-4 py-3 rounded-xl border-0 bg-transparent focus:outline-none">
+          <option>Купить</option>
+          <option>Снять</option>
+          <option>Продать</option>
+        </select>
+        <select class="flex-1 px-4 py-3 rounded-xl border-0 bg-transparent focus:outline-none">
+          <option>Квартира</option>
+          <option>Дом</option>
+          <option>Коммерческая</option>
+        </select>
+        <button type="button" class="px-6 py-3 bg-teal-700 text-white rounded-xl font-semibold hover:bg-teal-800 transition">Найти</button>
+      </div>
+      <div class="flex gap-8 mt-10">
+        <div><p class="font-display text-4xl">15+</p><p class="text-sm text-neutral-500">лет на рынке</p></div>
+        <div><p class="font-display text-4xl">2400+</p><p class="text-sm text-neutral-500">сделок</p></div>
+        <div><p class="font-display text-4xl">4.9★</p><p class="text-sm text-neutral-500">Google</p></div>
+      </div>
+    </div>
+    <div class="relative">
+      <img src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800" class="rounded-3xl aspect-[4/5] object-cover shadow-2xl">
+      <div class="absolute -bottom-6 -left-6 bg-white p-5 rounded-2xl shadow-xl border border-neutral-100">
+        <p class="text-xs text-neutral-500 mb-1">Продано на этой неделе</p>
+        <p class="font-display text-2xl">12 объектов</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="catalog" class="py-24 px-6 bg-neutral-50">
+  <div class="max-w-7xl mx-auto">
+    <div class="flex justify-between items-end mb-12 flex-wrap gap-4">
+      <div>
+        <p class="text-teal-700 font-semibold uppercase tracking-widest text-xs mb-3">Актуальные предложения</p>
+        <h2 class="font-display text-5xl md:text-6xl">Избранное</h2>
+      </div>
+      <a href="#" class="text-teal-700 font-semibold hover:underline">Весь каталог →</a>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <article class="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition">
+        <div class="relative"><img src="https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800" class="aspect-[4/3] object-cover w-full"><span class="absolute top-4 left-4 px-3 py-1 bg-white rounded-full text-xs font-bold">Продаётся</span></div>
+        <div class="p-6">
+          <p class="text-xs text-neutral-500 uppercase tracking-wider mb-2">Центр · 3 комнаты · 87 м²</p>
+          <h3 class="font-display text-2xl mb-2">Трёшка на Немиге с ремонтом</h3>
+          <p class="text-neutral-600 text-sm mb-4">Панорамные окна, новый ремонт, паркинг, рядом метро</p>
+          <div class="flex justify-between items-center"><p class="font-display text-2xl text-teal-700">215 000 $</p><a href="#" class="text-sm font-semibold hover:text-teal-700">Подробнее →</a></div>
+        </div>
+      </article>
+      <article class="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition">
+        <div class="relative"><img src="https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=800" class="aspect-[4/3] object-cover w-full"><span class="absolute top-4 left-4 px-3 py-1 bg-teal-700 text-white rounded-full text-xs font-bold">Новинка</span></div>
+        <div class="p-6">
+          <p class="text-xs text-neutral-500 uppercase tracking-wider mb-2">Дрозды · дом · 240 м²</p>
+          <h3 class="font-display text-2xl mb-2">Двухэтажный дом у леса</h3>
+          <p class="text-neutral-600 text-sm mb-4">10 соток, баня, гараж на 2 авто, охраняемый посёлок</p>
+          <div class="flex justify-between items-center"><p class="font-display text-2xl text-teal-700">450 000 $</p><a href="#" class="text-sm font-semibold hover:text-teal-700">Подробнее →</a></div>
+        </div>
+      </article>
+      <article class="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition">
+        <div class="relative"><img src="https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800" class="aspect-[4/3] object-cover w-full"><span class="absolute top-4 left-4 px-3 py-1 bg-white rounded-full text-xs font-bold">Аренда</span></div>
+        <div class="p-6">
+          <p class="text-xs text-neutral-500 uppercase tracking-wider mb-2">Уручье · 2 комнаты · 54 м²</p>
+          <h3 class="font-display text-2xl mb-2">Студия с видом на парк</h3>
+          <p class="text-neutral-600 text-sm mb-4">Новый дом, техника, мебель, готова к заезду</p>
+          <div class="flex justify-between items-center"><p class="font-display text-2xl text-teal-700">550 $<span class="text-sm text-neutral-400">/мес</span></p><a href="#" class="text-sm font-semibold hover:text-teal-700">Подробнее →</a></div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="services" class="py-24 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-teal-700 font-semibold uppercase tracking-widest text-xs mb-3">Полный цикл</p>
+      <h2 class="font-display text-5xl md:text-6xl">Чем мы поможем</h2>
+    </div>
+    <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div class="p-8 border border-neutral-200 rounded-3xl hover:border-teal-700 transition">
+        <div class="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-2xl mb-4">🔍</div>
+        <h3 class="font-display text-xl mb-2">Подбор объекта</h3>
+        <p class="text-sm text-neutral-600">Подберём варианты под ваш бюджет и критерии за 2-3 дня</p>
+      </div>
+      <div class="p-8 border border-neutral-200 rounded-3xl hover:border-teal-700 transition">
+        <div class="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-2xl mb-4">⚖</div>
+        <h3 class="font-display text-xl mb-2">Юридическое сопровождение</h3>
+        <p class="text-sm text-neutral-600">Проверка документов, договор, регистрация сделки</p>
+      </div>
+      <div class="p-8 border border-neutral-200 rounded-3xl hover:border-teal-700 transition">
+        <div class="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-2xl mb-4">💳</div>
+        <h3 class="font-display text-xl mb-2">Ипотека и кредиты</h3>
+        <p class="text-sm text-neutral-600">Подберём банк и программу, поможем с документами</p>
+      </div>
+      <div class="p-8 border border-neutral-200 rounded-3xl hover:border-teal-700 transition">
+        <div class="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-2xl mb-4">📊</div>
+        <h3 class="font-display text-xl mb-2">Оценка недвижимости</h3>
+        <p class="text-sm text-neutral-600">Определим справедливую рыночную цену вашего объекта</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="agents" class="py-24 px-6 bg-neutral-50">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-teal-700 font-semibold uppercase tracking-widest text-xs mb-3">Наша команда</p>
+      <h2 class="font-display text-5xl md:text-6xl">Агенты</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-8">
+      <div class="bg-white p-6 rounded-3xl shadow-sm">
+        <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600" class="w-full aspect-square object-cover rounded-2xl mb-5">
+        <h3 class="font-display text-2xl mb-1">Ольга Петрова</h3>
+        <p class="text-sm text-teal-700 mb-3">Центр · премиум-сегмент</p>
+        <p class="text-sm text-neutral-600 mb-4">12 лет опыта, 380 сделок</p>
+        <a href="tel:+375291111111" class="text-sm font-semibold text-teal-700 hover:underline">+375 29 111-11-11 →</a>
+      </div>
+      <div class="bg-white p-6 rounded-3xl shadow-sm">
+        <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600" class="w-full aspect-square object-cover rounded-2xl mb-5">
+        <h3 class="font-display text-2xl mb-1">Дмитрий Козлов</h3>
+        <p class="text-sm text-teal-700 mb-3">Новостройки · ипотека</p>
+        <p class="text-sm text-neutral-600 mb-4">8 лет опыта, 220 сделок</p>
+        <a href="tel:+375292222222" class="text-sm font-semibold text-teal-700 hover:underline">+375 29 222-22-22 →</a>
+      </div>
+      <div class="bg-white p-6 rounded-3xl shadow-sm">
+        <img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=600" class="w-full aspect-square object-cover rounded-2xl mb-5">
+        <h3 class="font-display text-2xl mb-1">Анна Сидорова</h3>
+        <p class="text-sm text-teal-700 mb-3">Загородная · дома</p>
+        <p class="text-sm text-neutral-600 mb-4">10 лет опыта, 290 сделок</p>
+        <a href="tel:+375293333333" class="text-sm font-semibold text-teal-700 hover:underline">+375 29 333-33-33 →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="contact" class="py-24 px-6 bg-teal-700 text-white">
+  <div class="max-w-4xl mx-auto text-center">
+    <h2 class="font-display text-5xl md:text-7xl mb-6">Нужна недвижимость?</h2>
+    <p class="text-xl opacity-90 mb-10 max-w-2xl mx-auto">Оставьте заявку — перезвоним в течение 15 минут в рабочее время и подберём варианты</p>
+    <div class="flex flex-wrap justify-center gap-4">
+      <a href="tel:+375297777777" class="px-10 py-4 bg-white text-teal-700 rounded-full font-bold hover:bg-neutral-100 transition">+375 29 777-77-77</a>
+      <a href="https://t.me/domagent" class="px-10 py-4 border-2 border-white rounded-full font-bold hover:bg-white hover:text-teal-700 transition">Telegram</a>
+    </div>
+  </div>
+</section>
+
+<footer class="py-10 px-6 bg-neutral-900 text-neutral-400 text-sm">
+  <div class="max-w-6xl mx-auto grid md:grid-cols-4 gap-8">
+    <div>
+      <p class="font-display text-xl text-white mb-3">🏠 Дом.Агент</p>
+      <p class="text-xs">Агентство недвижимости №1 в Минске</p>
+    </div>
+    <div>
+      <p class="font-semibold text-white mb-3">Услуги</p>
+      <ul class="space-y-2 text-xs"><li>Покупка</li><li>Продажа</li><li>Аренда</li><li>Оценка</li></ul>
+    </div>
+    <div>
+      <p class="font-semibold text-white mb-3">О нас</p>
+      <ul class="space-y-2 text-xs"><li>Команда</li><li>Отзывы</li><li>Вакансии</li></ul>
+    </div>
+    <div>
+      <p class="font-semibold text-white mb-3">Контакты</p>
+      <ul class="space-y-2 text-xs"><li>ул. Ленина 15, Минск</li><li>+375 29 777-77-77</li><li>info@domagent.by</li></ul>
+    </div>
+  </div>
+  <p class="text-center text-xs mt-10 pt-8 border-t border-neutral-800">© 2025 Дом.Агент · Лицензия № 02240/RA от 2010 г.</p>
+</footer>
+
+</body>
+</html>

@@ -3,6 +3,26 @@
 All notable changes to NIT Builder are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0-beta] — 2026-04-05
+
+### Added
+
+- **22 HTML templates** — 6 new categories: tattoo studio, flower shop, language school, legal firm, game studio, real estate. Catalog grows from 16 to 22
+- **Pipeline progress bar** (`PipelineProgress.tsx`) — visual 4-step indicator with gradient fill, animated icons, streaming character counter
+- **Toast notification system** — `toastStore.ts` + `ToastContainer.tsx`, 4 types (success/error/info/warning), auto-dismiss, slide-in CSS animation
+- **LocalStorage site history** — saves last 20 generations in browser, survives page reload. `HistoryPanel.tsx` with relative timestamps, delete support, open-in-editor action
+- **Keyboard shortcuts** — `⌘H/Ctrl+H` history, `⌘D/Ctrl+D` download, `Esc` cancel/close, with hint display in footer
+- **`/api/metrics` Prometheus endpoint** — counters (generations total/completed/failed, template selections, rate limits), histograms (generation latency), process uptime and heap memory
+- **AbortController** for generation cancellation — Esc key or Cancel button stops the LLM stream mid-generation
+
+### Changed
+
+- **`home.tsx` rewritten** — integrates progress bar, toast notifications, history panel, keyboard shortcuts, abort support. Generation results auto-saved to localStorage
+- **`htmlOrchestrator.ts` instrumented** — metrics collected at generation start, template selection, completion, and failure points with latency tracking
+- **`TemplateGrid.tsx`** — 6 new quick prompts for new template categories
+
+---
+
 ## [1.1.0-beta] — 2026-04-05
 
 ### Added

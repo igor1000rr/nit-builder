@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpeakUp — школа английского</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Fraunces', serif; }
+</style>
+</head>
+<body class="bg-amber-50 text-slate-900">
+
+<nav x-data="{open:false}" class="fixed w-full top-0 z-50 bg-amber-50/95 backdrop-blur border-b border-amber-200">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="#" class="font-display text-2xl font-black">🎓 SpeakUp</a>
+    <div class="hidden md:flex gap-8 text-sm font-medium">
+      <a href="#courses" class="hover:text-amber-700 transition">Курсы</a>
+      <a href="#teachers" class="hover:text-amber-700 transition">Преподаватели</a>
+      <a href="#pricing" class="hover:text-amber-700 transition">Цены</a>
+      <a href="#reviews" class="hover:text-amber-700 transition">Отзывы</a>
+    </div>
+    <a href="#trial" class="hidden md:inline-block px-5 py-2 bg-amber-600 text-white rounded-full text-sm font-semibold hover:bg-amber-700 transition">Пробный урок</a>
+    <button @click="open=!open" class="md:hidden"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  </div>
+  <div x-show="open" class="md:hidden border-t border-amber-200 px-6 py-4 space-y-3"><a href="#courses" class="block">Курсы</a><a href="#teachers" class="block">Преподаватели</a><a href="#pricing" class="block">Цены</a><a href="#reviews" class="block">Отзывы</a></div>
+</nav>
+
+<section id="hero" class="pt-32 pb-20 px-6">
+  <div class="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
+    <div>
+      <div class="inline-block px-4 py-1 bg-amber-200 rounded-full text-amber-900 text-xs font-semibold uppercase tracking-wider mb-6">🌟 Более 500 выпускников</div>
+      <h1 class="font-display text-5xl md:text-7xl font-black leading-[1.05] mb-6">Английский,<br>который <em class="text-amber-700">реально</em><br>заговорит</h1>
+      <p class="text-xl text-slate-600 mb-8 max-w-lg">Небольшие группы до 6 человек, носители языка, 80% занятия — живая речь. Первый пробный урок бесплатно.</p>
+      <div class="flex flex-wrap gap-4">
+        <a href="#trial" class="px-8 py-4 bg-amber-600 text-white rounded-full font-bold hover:bg-amber-700 transition shadow-lg shadow-amber-600/30">Записаться бесплатно</a>
+        <a href="#courses" class="px-8 py-4 border-2 border-slate-300 rounded-full font-semibold hover:border-slate-900 transition">Посмотреть курсы</a>
+      </div>
+      <div class="flex gap-6 mt-10">
+        <div><p class="font-display text-3xl font-black">12+</p><p class="text-sm text-slate-500">лет опыта</p></div>
+        <div><p class="font-display text-3xl font-black">500+</p><p class="text-sm text-slate-500">учеников</p></div>
+        <div><p class="font-display text-3xl font-black">4.9★</p><p class="text-sm text-slate-500">на Google</p></div>
+      </div>
+    </div>
+    <div class="relative">
+      <img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=800" class="rounded-3xl shadow-2xl aspect-[4/5] object-cover">
+      <div class="absolute -bottom-6 -left-6 bg-white p-6 rounded-2xl shadow-xl max-w-[200px]">
+        <p class="text-4xl mb-1">🗣️</p>
+        <p class="font-bold text-sm">80% разговорная практика</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="courses" class="py-24 px-6 bg-white">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-amber-700 font-semibold uppercase tracking-widest text-sm mb-3">Для каждого уровня</p>
+      <h2 class="font-display text-5xl md:text-6xl font-black">Наши курсы</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-8">
+      <div class="p-8 bg-amber-50 rounded-3xl border-2 border-transparent hover:border-amber-600 transition">
+        <div class="text-5xl mb-4">🌱</div>
+        <h3 class="font-display text-3xl font-bold mb-2">Beginner</h3>
+        <p class="text-slate-600 mb-5">A1 — A2. С нуля до первых фраз в ресторане и отеле. 3 месяца.</p>
+        <ul class="space-y-2 text-sm text-slate-700 mb-6">
+          <li>✓ Базовые времена</li>
+          <li>✓ 500+ слов словарного запаса</li>
+          <li>✓ Простые диалоги</li>
+        </ul>
+        <p class="font-display text-2xl font-bold text-amber-700">от 180 ₽/мес</p>
+      </div>
+      <div class="p-8 bg-amber-600 text-white rounded-3xl relative">
+        <div class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-amber-900 rounded-full text-xs font-bold uppercase">Популярный</div>
+        <div class="text-5xl mb-4">🚀</div>
+        <h3 class="font-display text-3xl font-bold mb-2">Intermediate</h3>
+        <p class="opacity-90 mb-5">B1 — B2. Уверенное общение на любую тему. 6 месяцев.</p>
+        <ul class="space-y-2 text-sm opacity-90 mb-6">
+          <li>✓ Все времена и конструкции</li>
+          <li>✓ 3000+ слов</li>
+          <li>✓ Подготовка к IELTS 6.0</li>
+        </ul>
+        <p class="font-display text-2xl font-bold">от 220 ₽/мес</p>
+      </div>
+      <div class="p-8 bg-amber-50 rounded-3xl border-2 border-transparent hover:border-amber-600 transition">
+        <div class="text-5xl mb-4">🎯</div>
+        <h3 class="font-display text-3xl font-bold mb-2">Advanced</h3>
+        <p class="text-slate-600 mb-5">C1 — C2. Свободное владение, IELTS 7.5+, деловой английский.</p>
+        <ul class="space-y-2 text-sm text-slate-700 mb-6">
+          <li>✓ Бизнес-английский</li>
+          <li>✓ Подготовка к IELTS / TOEFL</li>
+          <li>✓ Написание эссе</li>
+        </ul>
+        <p class="font-display text-2xl font-bold text-amber-700">от 280 ₽/мес</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="teachers" class="py-24 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-amber-700 font-semibold uppercase tracking-widest text-sm mb-3">Наша команда</p>
+      <h2 class="font-display text-5xl md:text-6xl font-black">Преподаватели</h2>
+    </div>
+    <div class="grid md:grid-cols-4 gap-6">
+      <div class="text-center"><img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400" class="w-full aspect-square rounded-2xl object-cover mb-4"><h3 class="font-bold">Anna</h3><p class="text-sm text-slate-500">🇬🇧 Native · 8 лет</p></div>
+      <div class="text-center"><img src="https://images.unsplash.com/photo-1560250097-0b93528c311a?w=400" class="w-full aspect-square rounded-2xl object-cover mb-4"><h3 class="font-bold">James</h3><p class="text-sm text-slate-500">🇺🇸 Native · 10 лет</p></div>
+      <div class="text-center"><img src="https://images.unsplash.com/photo-1580489944761-15a19d654956?w=400" class="w-full aspect-square rounded-2xl object-cover mb-4"><h3 class="font-bold">Екатерина</h3><p class="text-sm text-slate-500">C2, IELTS 8.5 · 6 лет</p></div>
+      <div class="text-center"><img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400" class="w-full aspect-square rounded-2xl object-cover mb-4"><h3 class="font-bold">Михаил</h3><p class="text-sm text-slate-500">Бизнес-английский · 7 лет</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="reviews" class="py-24 px-6 bg-amber-100">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-amber-700 font-semibold uppercase tracking-widest text-sm mb-3">Что говорят ученики</p>
+      <h2 class="font-display text-5xl md:text-6xl font-black">Отзывы</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="bg-white p-8 rounded-3xl">
+        <p class="text-amber-500 mb-3">★★★★★</p>
+        <p class="italic text-slate-700 mb-6">«За 4 месяца с полного нуля до уверенной речи с иностранцами на работе. Спасибо Anna!»</p>
+        <p class="font-bold">Ольга К.</p><p class="text-sm text-slate-500">IT-менеджер</p>
+      </div>
+      <div class="bg-white p-8 rounded-3xl">
+        <p class="text-amber-500 mb-3">★★★★★</p>
+        <p class="italic text-slate-700 mb-6">«Сдал IELTS на 7.5 после 8 месяцев. Занятия интересные, домашки в меру. Рекомендую.»</p>
+        <p class="font-bold">Антон Д.</p><p class="text-sm text-slate-500">студент</p>
+      </div>
+      <div class="bg-white p-8 rounded-3xl">
+        <p class="text-amber-500 mb-3">★★★★★</p>
+        <p class="italic text-slate-700 mb-6">«Ходим с дочкой вместе — у неё детская группа, у меня взрослая. Обе в восторге!»</p>
+        <p class="font-bold">Марина С.</p><p class="text-sm text-slate-500">мама</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="trial" class="py-24 px-6 bg-amber-600 text-white">
+  <div class="max-w-3xl mx-auto text-center">
+    <h2 class="font-display text-5xl md:text-7xl font-black mb-6">Пробный урок<br><em>бесплатно</em></h2>
+    <p class="text-xl opacity-90 mb-10">Определим твой уровень, подберём группу, познакомим с преподавателем. 40 минут — и ты уже говоришь.</p>
+    <a href="tel:+375291234567" class="inline-block px-12 py-5 bg-white text-amber-700 rounded-full font-bold text-lg hover:scale-105 transition shadow-2xl">Записаться · +375 29 123-45-67</a>
+  </div>
+</section>
+
+<footer class="py-10 px-6 bg-slate-900 text-slate-400 text-center text-sm">
+  <p class="font-display text-xl text-white mb-2">🎓 SpeakUp</p>
+  <p>ул. Карла Маркса 18, Минск · © 2025 · IELTS, TOEFL, Cambridge официальный центр подготовки</p>
+</footer>
+
+</body>
+</html>

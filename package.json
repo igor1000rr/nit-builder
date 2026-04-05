@@ -1,6 +1,6 @@
 {
   "name": "nit-builder",
-  "version": "1.1.0-beta",
+  "version": "1.2.0-beta",
   "description": "AI HTML site builder for local LLMs. Create websites on your own computer via LM Studio.",
   "private": false,
   "type": "module",

@@ -5,4 +5,6 @@ export default [
   route("about", "routes/landing.tsx"),
   route("api/pipeline/simple", "routes/api.pipeline.simple.ts"),
   route("api/health", "routes/api.health.ts"),
+  route("sitemap.xml", "routes/sitemap[.xml].ts"),
+  route("robots.txt", "routes/robots[.txt].ts"),
 ] satisfies RouteConfig;

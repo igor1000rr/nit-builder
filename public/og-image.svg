@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="50%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#F472B6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <circle cx="150" cy="120" r="200" fill="#3B82F6" opacity="0.15"/>
+  <circle cx="1050" cy="500" r="250" fill="#A855F7" opacity="0.15"/>
+
+  <text x="80" y="180" font-family="Inter, system-ui, sans-serif" font-size="28" font-weight="600" fill="#94A3B8" letter-spacing="2">
+    NIT BUILDER · OPEN SOURCE
+  </text>
+
+  <text x="80" y="300" font-family="Inter, system-ui, sans-serif" font-size="96" font-weight="800" fill="#ffffff">
+    Создай сайт
+  </text>
+  <text x="80" y="420" font-family="Inter, system-ui, sans-serif" font-size="96" font-weight="800" fill="url(#accent)">
+    за минуту
+  </text>
+
+  <text x="80" y="490" font-family="Inter, system-ui, sans-serif" font-size="32" font-weight="400" fill="#CBD5E1">
+    AI-конструктор для локальной модели · LM Studio + Groq
+  </text>
+
+  <g transform="translate(80, 540)">
+    <rect width="180" height="50" rx="25" fill="#10B981" opacity="0.2"/>
+    <text x="90" y="32" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="600" fill="#10B981" text-anchor="middle">
+      ✓ Бесплатно
+    </text>
+  </g>
+  <g transform="translate(280, 540)">
+    <rect width="180" height="50" rx="25" fill="#3B82F6" opacity="0.2"/>
+    <text x="90" y="32" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="600" fill="#60A5FA" text-anchor="middle">
+      ✓ Локально
+    </text>
+  </g>
+  <g transform="translate(480, 540)">
+    <rect width="180" height="50" rx="25" fill="#A855F7" opacity="0.2"/>
+    <text x="90" y="32" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="600" fill="#A78BFA" text-anchor="middle">
+      ✓ Open Source
+    </text>
+  </g>
+
+  <text x="1120" y="580" font-family="Inter, system-ui, sans-serif" font-size="20" fill="#64748B" text-anchor="end">
+    🇧🇾 Made in Belarus
+  </text>
+</svg>

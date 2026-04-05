@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ваш бизнес — добро пожаловать</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>body { font-family: 'Inter', sans-serif; }</style>
+</head>
+<body class="bg-white text-slate-900 antialiased">
+
+<nav x-data="{open:false}" class="fixed w-full top-0 z-50 bg-white/90 backdrop-blur border-b border-slate-100">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="#" class="font-bold text-xl">🌟 Brand</a>
+    <div class="hidden md:flex gap-8 text-sm font-medium">
+      <a href="#about" class="hover:text-blue-600">О нас</a>
+      <a href="#features" class="hover:text-blue-600">Преимущества</a>
+      <a href="#contact" class="hover:text-blue-600">Контакты</a>
+    </div>
+    <a href="#contact" class="hidden md:inline-block px-5 py-2 bg-slate-900 text-white rounded-full text-sm font-medium hover:bg-blue-600 transition">Связаться</a>
+    <button @click="open=!open" class="md:hidden"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  </div>
+  <div x-show="open" class="md:hidden border-t border-slate-100 px-6 py-4 space-y-3"><a href="#about" class="block">О нас</a><a href="#features" class="block">Преимущества</a><a href="#contact" class="block">Контакты</a></div>
+</nav>
+
+<section id="hero" class="pt-32 pb-24 px-6 bg-gradient-to-b from-blue-50 to-white">
+  <div class="max-w-5xl mx-auto text-center">
+    <p class="text-blue-600 font-medium uppercase tracking-widest text-sm mb-4">Добро пожаловать</p>
+    <h1 class="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">Создаём то,<br>что <span class="text-blue-600">работает</span></h1>
+    <p class="text-xl text-slate-600 max-w-2xl mx-auto mb-10">Краткое описание того, чем занимается ваш бизнес. Простой текст, который объясняет ценность для клиента за 10 секунд.</p>
+    <div class="flex flex-wrap justify-center gap-4">
+      <a href="#contact" class="px-8 py-4 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition shadow-lg shadow-blue-600/30">Связаться</a>
+      <a href="#about" class="px-8 py-4 border-2 border-slate-300 rounded-full font-semibold hover:border-slate-900 transition">Узнать больше</a>
+    </div>
+  </div>
+</section>
+
+<section id="about" class="py-24 px-6">
+  <div class="max-w-6xl mx-auto grid md:grid-cols-2 gap-16 items-center">
+    <div>
+      <p class="text-blue-600 font-medium uppercase tracking-widest text-sm mb-4">О нас</p>
+      <h2 class="text-4xl md:text-5xl font-bold mb-6">Кто мы и что делаем</h2>
+      <p class="text-lg text-slate-600 mb-6 leading-relaxed">Здесь рассказ о вашей компании, команде, истории и ценностях. Пара абзацев о том, почему клиенты выбирают именно вас.</p>
+      <p class="text-lg text-slate-600 leading-relaxed">Конкретные достижения, годы на рынке, количество клиентов — всё, что создаёт доверие.</p>
+    </div>
+    <div class="relative">
+      <img src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800" alt="Team" class="rounded-3xl shadow-2xl w-full h-[450px] object-cover">
+    </div>
+  </div>
+</section>
+
+<section id="features" class="py-24 px-6 bg-slate-50">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-blue-600 font-medium uppercase tracking-widest text-sm mb-4">Преимущества</p>
+      <h2 class="text-4xl md:text-5xl font-bold">Почему выбирают нас</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-8">
+      <div class="bg-white p-8 rounded-3xl shadow-sm hover:shadow-xl transition">
+        <div class="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center text-2xl mb-5">⚡</div>
+        <h3 class="text-xl font-bold mb-3">Быстро</h3>
+        <p class="text-slate-600">Решаем задачи оперативно, без долгих согласований и бюрократии.</p>
+      </div>
+      <div class="bg-white p-8 rounded-3xl shadow-sm hover:shadow-xl transition">
+        <div class="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center text-2xl mb-5">🎯</div>
+        <h3 class="text-xl font-bold mb-3">Точно</h3>
+        <p class="text-slate-600">Понимаем задачу с первого раза и попадаем в ожидания клиента.</p>
+      </div>
+      <div class="bg-white p-8 rounded-3xl shadow-sm hover:shadow-xl transition">
+        <div class="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center text-2xl mb-5">💎</div>
+        <h3 class="text-xl font-bold mb-3">Качественно</h3>
+        <p class="text-slate-600">Отвечаем за результат. Гарантии, поддержка, долгосрочные отношения.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="contact" class="py-24 px-6">
+  <div class="max-w-4xl mx-auto text-center">
+    <p class="text-blue-600 font-medium uppercase tracking-widest text-sm mb-4">Контакты</p>
+    <h2 class="text-4xl md:text-5xl font-bold mb-6">Готовы начать?</h2>
+    <p class="text-slate-600 text-xl mb-10 max-w-2xl mx-auto">Напишите нам — ответим в течение часа в рабочее время.</p>
+    <div class="grid md:grid-cols-3 gap-6 max-w-3xl mx-auto">
+      <a href="tel:+375291234567" class="p-6 bg-slate-50 rounded-2xl hover:bg-blue-50 transition block"><div class="text-3xl mb-2">📞</div><div class="font-semibold">Телефон</div><div class="text-blue-600 text-sm mt-1">+375 29 123-45-67</div></a>
+      <a href="mailto:hello@example.com" class="p-6 bg-slate-50 rounded-2xl hover:bg-blue-50 transition block"><div class="text-3xl mb-2">✉️</div><div class="font-semibold">Email</div><div class="text-blue-600 text-sm mt-1">hello@example.com</div></a>
+      <a href="https://t.me/username" class="p-6 bg-slate-50 rounded-2xl hover:bg-blue-50 transition block"><div class="text-3xl mb-2">💬</div><div class="font-semibold">Telegram</div><div class="text-blue-600 text-sm mt-1">@username</div></a>
+    </div>
+  </div>
+</section>
+
+<footer class="py-10 px-6 bg-slate-900 text-white text-center">
+  <p class="font-bold text-lg mb-2">🌟 Brand</p>
+  <p class="text-sm text-slate-400">© 2025. Все права защищены.</p>
+</footer>
+
+</body>
+</html>

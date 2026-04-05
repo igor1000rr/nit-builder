@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flowly — Автоматизация задач для команд</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>body { font-family: 'Inter', sans-serif; }</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+<nav class="fixed w-full top-0 z-50 bg-white/80 backdrop-blur border-b border-slate-200">
+  <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="#" class="font-bold text-xl flex items-center gap-2"><span class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white">F</span> Flowly</a>
+    <div class="hidden md:flex gap-8 text-sm font-medium text-slate-600">
+      <a href="#features" class="hover:text-slate-900">Возможности</a>
+      <a href="#how" class="hover:text-slate-900">Как работает</a>
+      <a href="#pricing" class="hover:text-slate-900">Цены</a>
+      <a href="#reviews" class="hover:text-slate-900">Отзывы</a>
+    </div>
+    <div class="flex gap-3">
+      <a href="#" class="hidden md:inline-block px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900">Войти</a>
+      <a href="#pricing" class="px-5 py-2 bg-slate-900 text-white rounded-full text-sm font-medium hover:bg-indigo-600 transition">Попробовать</a>
+    </div>
+  </div>
+</nav>
+
+<section id="hero" class="pt-36 pb-24 px-6">
+  <div class="max-w-5xl mx-auto text-center">
+    <div class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-full text-sm text-indigo-700 mb-8">
+      ⚡ Новое: AI-ассистент для планирования
+    </div>
+    <h1 class="text-5xl md:text-7xl font-extrabold leading-[1.05] mb-8">
+      Автоматизируй задачи.<br>
+      <span class="bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">Экономь 10+ часов в неделю.</span>
+    </h1>
+    <p class="text-xl text-slate-600 max-w-2xl mx-auto mb-10">Flowly — это платформа автоматизации для команд. Настройка за 5 минут, интеграция с 50+ сервисами, без кода.</p>
+    <div class="flex flex-wrap justify-center gap-4 mb-8">
+      <a href="#pricing" class="px-8 py-4 bg-slate-900 text-white rounded-full font-semibold hover:bg-indigo-600 transition">Начать бесплатно →</a>
+      <a href="#how" class="px-8 py-4 border-2 border-slate-200 rounded-full font-semibold hover:border-slate-900 transition">▶ Посмотреть демо</a>
+    </div>
+    <p class="text-sm text-slate-500">14 дней бесплатно · Кредитная карта не нужна</p>
+
+    <div class="mt-16 relative">
+      <div class="absolute -inset-4 bg-gradient-to-r from-indigo-500/20 to-purple-600/20 blur-3xl rounded-3xl"></div>
+      <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1400" class="relative rounded-2xl shadow-2xl border border-slate-200 w-full" alt="Dashboard">
+    </div>
+  </div>
+</section>
+
+<section class="py-12 px-6 border-y border-slate-200 bg-white">
+  <div class="max-w-6xl mx-auto">
+    <p class="text-center text-sm text-slate-500 mb-8">Нам доверяют команды в 40+ странах</p>
+    <div class="flex flex-wrap justify-center items-center gap-12 opacity-50">
+      <div class="font-bold text-2xl">ACME</div>
+      <div class="font-bold text-2xl">STELLAR</div>
+      <div class="font-bold text-2xl">NEXUS</div>
+      <div class="font-bold text-2xl">ORBIT</div>
+      <div class="font-bold text-2xl">VERTEX</div>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="py-24 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-indigo-600 font-semibold uppercase tracking-widest text-xs mb-3">Возможности</p>
+      <h2 class="text-4xl md:text-6xl font-extrabold">Всё в одном месте</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="p-8 bg-white rounded-3xl border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition">
+        <div class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white text-2xl mb-5">⚡</div>
+        <h3 class="text-xl font-bold mb-3">Мгновенная автоматизация</h3>
+        <p class="text-slate-600">Создавай автоматические сценарии перетаскиванием блоков. Без программирования.</p>
+      </div>
+      <div class="p-8 bg-white rounded-3xl border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition">
+        <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center text-white text-2xl mb-5">🔗</div>
+        <h3 class="text-xl font-bold mb-3">50+ интеграций</h3>
+        <p class="text-slate-600">Slack, Notion, Gmail, Google Sheets, Airtable, Jira — подключи за один клик.</p>
+      </div>
+      <div class="p-8 bg-white rounded-3xl border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition">
+        <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center text-white text-2xl mb-5">🤖</div>
+        <h3 class="text-xl font-bold mb-3">AI-ассистент</h3>
+        <p class="text-slate-600">Опиши задачу словами — AI соберёт автоматизацию за тебя.</p>
+      </div>
+      <div class="p-8 bg-white rounded-3xl border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition">
+        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center text-white text-2xl mb-5">📊</div>
+        <h3 class="text-xl font-bold mb-3">Аналитика</h3>
+        <p class="text-slate-600">Детальные отчёты по каждому сценарию. Где экономишь, где теряешь время.</p>
+      </div>
+      <div class="p-8 bg-white rounded-3xl border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition">
+        <div class="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center text-white text-2xl mb-5">🔒</div>
+        <h3 class="text-xl font-bold mb-3">Безопасность</h3>
+        <p class="text-slate-600">SOC 2, GDPR-compliant. Шифрование end-to-end, аудит логов.</p>
+      </div>
+      <div class="p-8 bg-white rounded-3xl border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition">
+        <div class="w-12 h-12 bg-gradient-to-br from-pink-500 to-rose-500 rounded-xl flex items-center justify-center text-white text-2xl mb-5">👥</div>
+        <h3 class="text-xl font-bold mb-3">Командная работа</h3>
+        <p class="text-slate-600">Роли, права доступа, комментарии, совместное редактирование сценариев.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how" class="py-24 px-6 bg-white border-y border-slate-200">
+  <div class="max-w-5xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-indigo-600 font-semibold uppercase tracking-widest text-xs mb-3">Как работает</p>
+      <h2 class="text-4xl md:text-6xl font-extrabold">Запуск за 5 минут</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-8">
+      <div class="text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 text-indigo-600 text-2xl font-bold rounded-2xl mb-5">1</div>
+        <h3 class="text-xl font-bold mb-3">Подключи сервисы</h3>
+        <p class="text-slate-600">Выбери из 50+ интеграций и авторизуйся в один клик.</p>
+      </div>
+      <div class="text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 text-indigo-600 text-2xl font-bold rounded-2xl mb-5">2</div>
+        <h3 class="text-xl font-bold mb-3">Настрой сценарий</h3>
+        <p class="text-slate-600">Перетаскивай блоки или опиши задачу — AI построит flow.</p>
+      </div>
+      <div class="text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 text-indigo-600 text-2xl font-bold rounded-2xl mb-5">3</div>
+        <h3 class="text-xl font-bold mb-3">Запускай и экономь</h3>
+        <p class="text-slate-600">Сценарии работают 24/7. Ты видишь только результат.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" class="py-24 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-16">
+      <p class="text-indigo-600 font-semibold uppercase tracking-widest text-xs mb-3">Цены</p>
+      <h2 class="text-4xl md:text-6xl font-extrabold">Простые тарифы</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+      <div class="p-8 bg-white border border-slate-200 rounded-3xl"><h3 class="font-bold text-xl mb-2">Starter</h3><p class="text-slate-500 text-sm mb-6">Для личного использования</p><div class="text-4xl font-extrabold mb-6">$0<span class="text-base font-normal text-slate-500">/мес</span></div><ul class="space-y-3 text-sm text-slate-600 mb-8"><li>✓ 3 активных сценария</li><li>✓ 100 запусков/мес</li><li>✓ 5 интеграций</li><li>✓ Community support</li></ul><a href="#" class="block text-center py-3 border-2 border-slate-200 rounded-full font-semibold hover:border-slate-900 transition">Начать</a></div>
+      <div class="p-8 bg-gradient-to-br from-indigo-600 to-purple-700 text-white rounded-3xl transform scale-105 shadow-2xl"><div class="inline-block px-3 py-1 bg-white/20 rounded-full text-xs mb-2">⭐ Популярный</div><h3 class="font-bold text-xl mb-2">Pro</h3><p class="text-indigo-200 text-sm mb-6">Для профессионалов и команд</p><div class="text-4xl font-extrabold mb-6">$29<span class="text-base font-normal text-indigo-200">/мес</span></div><ul class="space-y-3 text-sm mb-8"><li>✓ Безлимит сценариев</li><li>✓ 10 000 запусков/мес</li><li>✓ Все интеграции</li><li>✓ AI-ассистент</li><li>✓ Приоритетная поддержка</li></ul><a href="#" class="block text-center py-3 bg-white text-indigo-600 rounded-full font-semibold hover:bg-slate-100 transition">Попробовать 14 дней</a></div>
+      <div class="p-8 bg-white border border-slate-200 rounded-3xl"><h3 class="font-bold text-xl mb-2">Enterprise</h3><p class="text-slate-500 text-sm mb-6">Для больших команд</p><div class="text-4xl font-extrabold mb-6">По запросу</div><ul class="space-y-3 text-sm text-slate-600 mb-8"><li>✓ Всё из Pro</li><li>✓ SSO / SAML</li><li>✓ Audit logs</li><li>✓ Dedicated manager</li><li>✓ SLA 99.9%</li></ul><a href="#" class="block text-center py-3 border-2 border-slate-200 rounded-full font-semibold hover:border-slate-900 transition">Связаться</a></div>
+    </div>
+  </div>
+</section>
+
+<section id="reviews" class="py-24 px-6 bg-white border-y border-slate-200">
+  <div class="max-w-5xl mx-auto">
+    <h2 class="text-4xl md:text-6xl font-extrabold text-center mb-14">Отзывы команд</h2>
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="p-8 bg-slate-50 rounded-3xl"><div class="text-yellow-400 mb-4">★★★★★</div><p class="text-slate-700 text-lg mb-5">«Flowly заменил нам Zapier за половину цены. AI-ассистент — это просто магия, делает автоматизации за минуты»</p><div class="flex items-center gap-3"><div class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full"></div><div><div class="font-bold">Анна Соколова</div><div class="text-sm text-slate-500">CTO, Stellar Labs</div></div></div></div>
+      <div class="p-8 bg-slate-50 rounded-3xl"><div class="text-yellow-400 mb-4">★★★★★</div><p class="text-slate-700 text-lg mb-5">«За месяц сэкономили 200+ часов команды. Окупилось за первую неделю»</p><div class="flex items-center gap-3"><div class="w-12 h-12 bg-gradient-to-br from-pink-500 to-red-500 rounded-full"></div><div><div class="font-bold">Максим Петров</div><div class="text-sm text-slate-500">CEO, Acme Inc</div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="py-24 px-6 bg-gradient-to-br from-indigo-600 to-purple-700 text-white">
+  <div class="max-w-3xl mx-auto text-center">
+    <h2 class="text-4xl md:text-6xl font-extrabold mb-6">Готовы начать?</h2>
+    <p class="text-xl text-indigo-100 mb-10">14 дней бесплатно. Никаких обязательств.</p>
+    <a href="#" class="inline-block px-10 py-5 bg-white text-indigo-600 rounded-full font-bold text-lg hover:scale-105 transition shadow-2xl">Попробовать бесплатно →</a>
+  </div>
+</section>
+
+<footer class="py-12 px-6 bg-slate-900 text-slate-400 text-sm">
+  <div class="max-w-6xl mx-auto flex flex-wrap justify-between gap-6">
+    <div><div class="font-bold text-white text-xl mb-2">Flowly</div><p>© 2025 · Автоматизация для команд</p></div>
+    <div class="flex gap-6"><a href="#" class="hover:text-white">Документация</a><a href="#" class="hover:text-white">Блог</a><a href="#" class="hover:text-white">Контакты</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

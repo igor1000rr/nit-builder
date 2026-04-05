@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Елена Петрова — Репетитор английского</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Lora', serif; }
+</style>
+</head>
+<body class="bg-amber-50/30 text-slate-900">
+
+<nav x-data="{open:false}" class="fixed w-full top-0 z-50 bg-amber-50/90 backdrop-blur border-b border-amber-200">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="#" class="font-display text-2xl font-bold">📚 Елена Петрова</a>
+    <div class="hidden md:flex gap-8 text-sm font-medium">
+      <a href="#subjects" class="hover:text-orange-600">Предметы</a>
+      <a href="#about" class="hover:text-orange-600">Обо мне</a>
+      <a href="#pricing" class="hover:text-orange-600">Цены</a>
+      <a href="#reviews" class="hover:text-orange-600">Отзывы</a>
+      <a href="#contact" class="hover:text-orange-600">Связаться</a>
+    </div>
+    <a href="#contact" class="hidden md:inline-block px-5 py-2 bg-orange-600 text-white rounded-full text-sm font-medium hover:bg-orange-700 transition">Записаться</a>
+  </div>
+</nav>
+
+<section id="hero" class="pt-32 pb-20 px-6">
+  <div class="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
+    <div>
+      <p class="text-orange-600 font-semibold uppercase tracking-widest text-xs mb-4">Репетитор английского · 10 лет опыта</p>
+      <h1 class="font-display text-5xl md:text-7xl font-bold leading-tight mb-6">Английский,<br>который <span class="text-orange-600">заговорит</span></h1>
+      <p class="text-lg text-slate-600 mb-8 max-w-md">Индивидуальные занятия для школьников, студентов и взрослых. Подготовка к ЦТ, IELTS, TOEFL. Разговорный клуб.</p>
+      <div class="flex gap-4 flex-wrap">
+        <a href="#contact" class="px-8 py-4 bg-orange-600 text-white rounded-full font-semibold hover:bg-orange-700 transition">Пробное занятие бесплатно</a>
+        <a href="#subjects" class="px-8 py-4 border-2 border-slate-300 rounded-full font-semibold hover:border-slate-900 transition">Направления</a>
+      </div>
+      <div class="flex gap-8 mt-10 text-sm">
+        <div><div class="font-display text-3xl font-bold text-orange-600">200+</div><div class="text-slate-500">учеников</div></div>
+        <div><div class="font-display text-3xl font-bold text-orange-600">10</div><div class="text-slate-500">лет опыта</div></div>
+        <div><div class="font-display text-3xl font-bold text-orange-600">C2</div><div class="text-slate-500">Proficiency</div></div>
+      </div>
+    </div>
+    <div class="relative">
+      <img src="https://images.unsplash.com/photo-1544717305-2782549b5136?w=800" class="rounded-3xl shadow-2xl w-full h-[550px] object-cover" alt="">
+    </div>
+  </div>
+</section>
+
+<section id="subjects" class="py-24 px-6 bg-white">
+  <div class="max-w-6xl mx-auto">
+    <p class="text-orange-600 font-semibold uppercase tracking-widest text-xs text-center mb-3">Направления</p>
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-center mb-14">Что я преподаю</h2>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="p-8 bg-amber-50/50 rounded-3xl border border-amber-100"><div class="text-4xl mb-4">🏫</div><h3 class="font-display text-2xl font-bold mb-3">Школьная программа</h3><p class="text-slate-600">1-11 классы. Помощь с домашкой, подготовка к контрольным, олимпиадам.</p></div>
+      <div class="p-8 bg-amber-50/50 rounded-3xl border border-amber-100"><div class="text-4xl mb-4">🎓</div><h3 class="font-display text-2xl font-bold mb-3">Подготовка к ЦТ</h3><p class="text-slate-600">Систематическая подготовка к централизованному тестированию. Гарантия результата.</p></div>
+      <div class="p-8 bg-amber-50/50 rounded-3xl border border-amber-100"><div class="text-4xl mb-4">🌍</div><h3 class="font-display text-2xl font-bold mb-3">IELTS / TOEFL</h3><p class="text-slate-600">Подготовка к международным экзаменам. Разбор всех модулей, пробные тесты.</p></div>
+      <div class="p-8 bg-amber-50/50 rounded-3xl border border-amber-100"><div class="text-4xl mb-4">💼</div><h3 class="font-display text-2xl font-bold mb-3">Business English</h3><p class="text-slate-600">Для работы: презентации, переговоры, деловая переписка, собеседования.</p></div>
+      <div class="p-8 bg-amber-50/50 rounded-3xl border border-amber-100"><div class="text-4xl mb-4">💬</div><h3 class="font-display text-2xl font-bold mb-3">Разговорный клуб</h3><p class="text-slate-600">Снятие языкового барьера. Темы из жизни, дискуссии, ролевые ситуации.</p></div>
+      <div class="p-8 bg-amber-50/50 rounded-3xl border border-amber-100"><div class="text-4xl mb-4">🧒</div><h3 class="font-display text-2xl font-bold mb-3">Английский для малышей</h3><p class="text-slate-600">5-8 лет. Игровая форма, песни, мультфильмы, первые фразы.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="about" class="py-24 px-6">
+  <div class="max-w-4xl mx-auto grid md:grid-cols-2 gap-12 items-center">
+    <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=800" class="rounded-3xl w-full h-[500px] object-cover" alt="">
+    <div>
+      <p class="text-orange-600 font-semibold uppercase tracking-widest text-xs mb-4">Обо мне</p>
+      <h2 class="font-display text-4xl md:text-5xl font-bold mb-6">Привет, я Елена!</h2>
+      <div class="space-y-4 text-slate-600 leading-relaxed">
+        <p>Преподаю английский с 2014 года. Выпускница МГЛУ (минский иняз), сертификат CELTA, Cambridge Proficiency (C2).</p>
+        <p>Моя философия — обучение через интерес. Никакой зубрёжки и учебников 90-х годов. Современные материалы, живой язык, ваши темы.</p>
+        <p>Более 200 учеников за эти годы — от 5 лет до 70. Средний рост уровня за год — на 1-1.5 ступени CEFR.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" class="py-24 px-6 bg-white">
+  <div class="max-w-4xl mx-auto">
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-center mb-14">Стоимость занятий</h2>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="p-8 bg-amber-50/50 rounded-3xl border border-amber-100 text-center"><h3 class="font-display text-2xl font-bold mb-2">60 минут</h3><div class="font-display text-5xl font-bold text-orange-600 my-6">35<span class="text-xl">₽</span></div><p class="text-slate-600 text-sm">Индивидуально · онлайн или офлайн</p></div>
+      <div class="p-8 bg-orange-600 text-white rounded-3xl text-center transform scale-105"><div class="inline-block px-3 py-1 bg-white/20 rounded-full text-xs mb-2">Популярный</div><h3 class="font-display text-2xl font-bold mb-2">90 минут</h3><div class="font-display text-5xl font-bold my-6">50<span class="text-xl">₽</span></div><p class="text-orange-100 text-sm">Оптимальный формат для взрослых</p></div>
+      <div class="p-8 bg-amber-50/50 rounded-3xl border border-amber-100 text-center"><h3 class="font-display text-2xl font-bold mb-2">Абонемент</h3><div class="font-display text-5xl font-bold text-orange-600 my-6">300<span class="text-xl">₽</span></div><p class="text-slate-600 text-sm">10 занятий по 60 мин · скидка 15%</p></div>
+    </div>
+    <p class="text-center mt-10 text-slate-500 text-sm">Первое пробное занятие — бесплатно. Можно онлайн через Zoom или очно в районе ст.м. Академия наук.</p>
+  </div>
+</section>
+
+<section id="reviews" class="py-24 px-6">
+  <div class="max-w-5xl mx-auto">
+    <h2 class="font-display text-4xl md:text-5xl font-bold text-center mb-14">Отзывы учеников</h2>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="p-6 bg-white rounded-3xl border border-amber-100">
+        <div class="text-amber-400 mb-3">★★★★★</div>
+        <p class="text-slate-600 italic mb-4">«За полгода с Еленой сдала IELTS на 7.5. Грамотно выстроенная программа, всегда интересно»</p>
+        <div class="text-sm font-semibold">Анна, 24 года</div>
+      </div>
+      <div class="p-6 bg-white rounded-3xl border border-amber-100">
+        <div class="text-amber-400 mb-3">★★★★★</div>
+        <p class="text-slate-600 italic mb-4">«Сын занимается второй год. Из троечника стал одним из лучших в классе. Спасибо!»</p>
+        <div class="text-sm font-semibold">Ирина, мама ученика</div>
+      </div>
+      <div class="p-6 bg-white rounded-3xl border border-amber-100">
+        <div class="text-amber-400 mb-3">★★★★★</div>
+        <p class="text-slate-600 italic mb-4">«Начал с нуля для работы. Через 8 месяцев свободно говорю на встречах с иностранными клиентами»</p>
+        <div class="text-sm font-semibold">Дмитрий, 35 лет</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="contact" class="py-24 px-6 bg-orange-600 text-white">
+  <div class="max-w-3xl mx-auto text-center">
+    <h2 class="font-display text-4xl md:text-6xl font-bold mb-6">Начнём?</h2>
+    <p class="text-xl text-orange-100 mb-10">Первое занятие бесплатно. Определим ваш уровень и составим план обучения.</p>
+    <div class="flex flex-wrap justify-center gap-3">
+      <a href="tel:+375291234567" class="px-8 py-4 bg-white text-orange-600 rounded-full font-bold hover:bg-amber-50 transition">📞 +375 29 123-45-67</a>
+      <a href="https://t.me/elena_tutor" class="px-8 py-4 border-2 border-white rounded-full font-bold hover:bg-white hover:text-orange-600 transition">Telegram</a>
+    </div>
+  </div>
+</section>
+
+<footer class="py-8 px-6 text-center text-slate-500 text-sm">
+  © 2025 · Елена Петрова · Репетитор английского языка
+</footer>
+
+</body>
+</html>

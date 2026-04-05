@@ -1,0 +1,17 @@
+node_modules
+build
+.react-router
+.cache
+.git
+.github
+.env
+.env.local
+.vscode
+.idea
+*.log
+coverage
+tests
+README*.md
+LICENSE
+Dockerfile
+docker-compose*.yml

@@ -1,0 +1,30 @@
+services:
+  nit-builder:
+    build: .
+    image: nit-builder:latest
+    container_name: nit-builder
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Uncomment and set at least one LLM provider:
+      # LMSTUDIO_BASE_URL: http://host.docker.internal:1234
+      # LMSTUDIO_MODEL: qwen2.5-coder-7b-instruct
+      # GROQ_API_KEY: gsk_your_key_here
+      # GROQ_MODEL: llama-3.3-70b-versatile
+      # OPENROUTER_API_KEY: sk-or-v1-...
+      # Production security:
+      # NIT_API_SECRET: your-32-char-random-secret-here
+      GUEST_DAILY_LIMIT: "10"
+      LOG_LEVEL: info
+    # Uncomment on Linux if LM Studio runs on host and you need to reach it:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

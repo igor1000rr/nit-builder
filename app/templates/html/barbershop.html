@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRON BLADE — Барбершоп</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.02em; }
+</style>
+</head>
+<body class="bg-neutral-950 text-neutral-100">
+
+<nav x-data="{open:false}" class="fixed w-full top-0 z-50 bg-neutral-950/90 backdrop-blur border-b border-neutral-900">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="#" class="font-display text-3xl text-amber-500">💈 IRON BLADE</a>
+    <div class="hidden md:flex gap-8 text-sm font-medium uppercase tracking-wider">
+      <a href="#services" class="hover:text-amber-500 transition">Услуги</a>
+      <a href="#masters" class="hover:text-amber-500 transition">Мастера</a>
+      <a href="#gallery" class="hover:text-amber-500 transition">Работы</a>
+      <a href="#booking" class="hover:text-amber-500 transition">Запись</a>
+    </div>
+    <a href="#booking" class="hidden md:inline-block px-5 py-2 bg-amber-500 text-neutral-950 rounded-none font-bold uppercase text-sm hover:bg-amber-400 transition">Записаться</a>
+    <button @click="open=!open" class="md:hidden text-amber-500">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+  </div>
+</nav>
+
+<section id="hero" class="min-h-screen flex items-center px-6 relative overflow-hidden">
+  <div class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=1600')] bg-cover bg-center opacity-20"></div>
+  <div class="absolute inset-0 bg-gradient-to-r from-neutral-950 via-neutral-950/80 to-transparent"></div>
+  <div class="max-w-6xl mx-auto w-full relative z-10">
+    <p class="text-amber-500 font-bold uppercase tracking-widest text-sm mb-4">Мужской барбершоп с 2015</p>
+    <h1 class="font-display text-7xl md:text-9xl leading-[0.9] mb-6">СТРИЖКА<br>КАК РИТУАЛ</h1>
+    <p class="text-lg text-neutral-400 max-w-lg mb-10">Классические мужские стрижки, бритьё опасной бритвой, уход за бородой. Только лучшие мастера и атмосфера настоящего барбершопа.</p>
+    <div class="flex gap-4">
+      <a href="#booking" class="px-8 py-4 bg-amber-500 text-neutral-950 font-bold uppercase hover:bg-amber-400 transition">Записаться</a>
+      <a href="#services" class="px-8 py-4 border-2 border-amber-500 text-amber-500 font-bold uppercase hover:bg-amber-500 hover:text-neutral-950 transition">Прайс</a>
+    </div>
+  </div>
+</section>
+
+<section id="services" class="py-24 px-6 border-t border-neutral-900">
+  <div class="max-w-6xl mx-auto">
+    <p class="text-amber-500 font-bold uppercase tracking-widest text-sm mb-4">Прайс</p>
+    <h2 class="font-display text-6xl mb-14">НАШИ УСЛУГИ</h2>
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="flex justify-between items-center p-6 bg-neutral-900/50 border border-neutral-800"><div><h3 class="font-bold text-xl mb-1">Мужская стрижка</h3><p class="text-sm text-neutral-500">Машинка + ножницы, мытьё, укладка</p></div><div class="font-display text-3xl text-amber-500">40 ₽</div></div>
+      <div class="flex justify-between items-center p-6 bg-neutral-900/50 border border-neutral-800"><div><h3 class="font-bold text-xl mb-1">Борода</h3><p class="text-sm text-neutral-500">Оформление контура, окантовка</p></div><div class="font-display text-3xl text-amber-500">25 ₽</div></div>
+      <div class="flex justify-between items-center p-6 bg-neutral-900/50 border border-neutral-800"><div><h3 class="font-bold text-xl mb-1">Стрижка + борода</h3><p class="text-sm text-neutral-500">Комплекс со скидкой</p></div><div class="font-display text-3xl text-amber-500">55 ₽</div></div>
+      <div class="flex justify-between items-center p-6 bg-neutral-900/50 border border-neutral-800"><div><h3 class="font-bold text-xl mb-1">Королевское бритьё</h3><p class="text-sm text-neutral-500">Опасная бритва, горячий компресс</p></div><div class="font-display text-3xl text-amber-500">35 ₽</div></div>
+      <div class="flex justify-between items-center p-6 bg-neutral-900/50 border border-neutral-800"><div><h3 class="font-bold text-xl mb-1">Детская стрижка</h3><p class="text-sm text-neutral-500">До 12 лет</p></div><div class="font-display text-3xl text-amber-500">30 ₽</div></div>
+      <div class="flex justify-between items-center p-6 bg-neutral-900/50 border border-neutral-800"><div><h3 class="font-bold text-xl mb-1">Камуфляж седины</h3><p class="text-sm text-neutral-500">Стойкое окрашивание</p></div><div class="font-display text-3xl text-amber-500">30 ₽</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="masters" class="py-24 px-6 border-t border-neutral-900 bg-neutral-900/30">
+  <div class="max-w-6xl mx-auto">
+    <p class="text-amber-500 font-bold uppercase tracking-widest text-sm mb-4">Команда</p>
+    <h2 class="font-display text-6xl mb-14">НАШИ МАСТЕРА</h2>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="group relative overflow-hidden">
+        <img src="https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=600" alt="Master" class="w-full h-96 object-cover grayscale group-hover:grayscale-0 transition">
+        <div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-neutral-950 to-transparent">
+          <h3 class="font-display text-3xl">ВИКТОР</h3>
+          <p class="text-amber-500 text-sm">Топ-мастер · 8 лет опыта</p>
+        </div>
+      </div>
+      <div class="group relative overflow-hidden">
+        <img src="https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=600" alt="Master" class="w-full h-96 object-cover grayscale group-hover:grayscale-0 transition">
+        <div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-neutral-950 to-transparent">
+          <h3 class="font-display text-3xl">АНТОН</h3>
+          <p class="text-amber-500 text-sm">Барбер · 5 лет опыта</p>
+        </div>
+      </div>
+      <div class="group relative overflow-hidden">
+        <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600" alt="Master" class="w-full h-96 object-cover grayscale group-hover:grayscale-0 transition">
+        <div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-neutral-950 to-transparent">
+          <h3 class="font-display text-3xl">МАКСИМ</h3>
+          <p class="text-amber-500 text-sm">Барбер · 4 года опыта</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="booking" class="py-24 px-6 border-t border-neutral-900">
+  <div class="max-w-3xl mx-auto text-center">
+    <p class="text-amber-500 font-bold uppercase tracking-widest text-sm mb-4">Запись</p>
+    <h2 class="font-display text-6xl mb-8">ПРИХОДИ СТАНЬ ЛУЧШЕ</h2>
+    <p class="text-neutral-400 text-lg mb-10">Запишись по телефону или через Telegram. Работаем ежедневно с 10:00 до 22:00.</p>
+    <div class="flex flex-wrap justify-center gap-4">
+      <a href="tel:+375291234567" class="px-8 py-4 bg-amber-500 text-neutral-950 font-bold uppercase hover:bg-amber-400 transition">📞 +375 29 123-45-67</a>
+      <a href="https://t.me/ironblade" class="px-8 py-4 border-2 border-amber-500 text-amber-500 font-bold uppercase hover:bg-amber-500 hover:text-neutral-950 transition">Telegram</a>
+    </div>
+    <p class="mt-10 text-neutral-500 text-sm">ул. Ленина 15, Минск · Пн-Вс 10:00-22:00</p>
+  </div>
+</section>
+
+<footer class="py-10 px-6 border-t border-neutral-900 text-center">
+  <p class="font-display text-3xl text-amber-500 mb-2">💈 IRON BLADE</p>
+  <p class="text-xs text-neutral-600 uppercase tracking-widest">© 2025 · Мужской барбершоп</p>
+</footer>
+
+</body>
+</html>

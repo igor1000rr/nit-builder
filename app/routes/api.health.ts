@@ -5,7 +5,7 @@ export async function loader() {
   const providers = getAvailableProviders();
   return Response.json({
     status: "ok",
-    version: "1.2.0-beta",
+    version: "1.3.0-beta",
     timestamp: new Date().toISOString(),
     providers: providers.map((p) => ({ id: p.id, model: p.defaultModel })),
     templates: TEMPLATE_CATALOG.length,

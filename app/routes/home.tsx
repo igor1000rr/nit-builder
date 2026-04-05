@@ -11,6 +11,7 @@ import { parseSseStream } from "~/lib/utils/sseParser";
 import { saveToHistory, type HistoryEntry } from "~/lib/stores/historyStore";
 import { toast } from "~/lib/stores/toastStore";
 import { useKeyboardShortcuts } from "~/lib/hooks/useKeyboardShortcuts";
+import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
 
 type ViewMode = "welcome" | "generating" | "editing";
 type PipelineStep = "plan" | "template" | "code" | "done";
@@ -42,6 +43,8 @@ export default function Home() {
 
   // UI state
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [lastPrompt, setLastPrompt] = useState("");
   const [lastTemplateId, setLastTemplateId] = useState("");
 
@@ -94,6 +97,7 @@ export default function Home() {
             projectId,
             sessionId: sessionIdRef.current,
             message: prompt,
+            providerId: selectedProvider ?? undefined,
           }),
           signal: ctrl.signal,
         });
@@ -179,6 +183,7 @@ export default function Home() {
             projectId,
             sessionId: sessionIdRef.current,
             message: request,
+            providerId: selectedProvider ?? undefined,
           }),
           signal: ctrl.signal,
         });
@@ -266,7 +271,8 @@ export default function Home() {
     {
       key: "Escape",
       handler: () => {
-        if (historyOpen) setHistoryOpen(false);
+        if (settingsOpen) setSettingsOpen(false);
+        else if (historyOpen) setHistoryOpen(false);
         else if (mode === "generating") cancelGeneration();
       },
       description: "Отмена / закрыть",
@@ -295,6 +301,18 @@ export default function Home() {
       handler: () => mode === "editing" && downloadHtml(),
       description: "Ctrl+D — Скачать",
     },
+    {
+      key: ",",
+      meta: true,
+      handler: () => setSettingsOpen(true),
+      description: "⌘, — Настройки",
+    },
+    {
+      key: ",",
+      ctrl: true,
+      handler: () => setSettingsOpen(true),
+      description: "Ctrl+, — Настройки",
+    },
   ]);
 
   // ─── Welcome screen ─────────────────────────────────
@@ -303,6 +321,7 @@ export default function Home() {
       <div className="min-h-screen bg-slate-950 text-white">
         <ToastContainer />
         <HistoryPanel isOpen={historyOpen} onClose={() => setHistoryOpen(false)} onOpen={openFromHistory} />
+        <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} />
 
         <nav className="px-6 py-5 flex justify-between items-center max-w-6xl mx-auto">
           <a href="/" className="font-bold text-xl bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
@@ -317,7 +336,15 @@ export default function Home() {
               <span>📚</span>
               <span className="hidden sm:inline">Мои сайты</span>
             </button>
-            <a href="/about" className="px-4 py-2 text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="px-4 py-2 text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900"
+              title="Настройки (⌘,)"
+            >
+              ⚙️
+            </button>
+            <a href="/about" className="hidden sm:block px-4 py-2 text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900">
               О проекте
             </a>
             <a
@@ -376,6 +403,7 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col">
         <ToastContainer />
+        <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} />
         <nav className="px-6 py-4 flex justify-between items-center border-b border-slate-900">
           <a href="/" className="font-bold bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
             NIT Builder
@@ -424,6 +452,7 @@ export default function Home() {
     <div className="h-screen bg-slate-950 text-white flex flex-col overflow-hidden">
       <ToastContainer />
       <HistoryPanel isOpen={historyOpen} onClose={() => setHistoryOpen(false)} onOpen={openFromHistory} />
+      <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} />
 
       <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_380px] overflow-hidden">
         <LivePreview

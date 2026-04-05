@@ -15,6 +15,7 @@ import { sanitizeUserMessage } from "~/lib/utils/promptSanitizer";
 import { updateSessionHtml, type SessionMemory } from "~/lib/services/sessionMemory";
 import { logger } from "~/lib/utils/logger";
 import { metrics } from "~/lib/services/metrics";
+import { repairTruncatedHtml } from "~/lib/utils/htmlRepair";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -54,12 +55,14 @@ function stripCodeFences(text: string): string {
   }
 
   // Safety net: удаляем LLM-facing маркеры секций, если модель их скопировала.
-  // Они предназначены только для навигации внутри prompt'а.
-  return extracted
+  const cleaned = extracted
     .replace(/\s*<!--\s*═══\s*SECTION:[^>]*-->\s*/g, "\n")
     .replace(/\s*<!--\s*═══\s*END\s+SECTION\s*═══\s*-->\s*/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  // Auto-repair: если LLM обрезал вывод (max_tokens), закрываем незакрытые теги
+  return repairTruncatedHtml(cleaned);
 }
 
 export async function* executeHtmlSimple(

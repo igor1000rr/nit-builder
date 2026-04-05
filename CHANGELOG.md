@@ -3,6 +3,28 @@
 All notable changes to NIT Builder are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0-beta] — 2026-04-05
+
+### Added
+
+- **Settings drawer** (`SettingsDrawer.tsx`) — provider selector with health status (pings LM Studio, checks Groq/OpenRouter keys), keyboard shortcuts reference, version info. Accessible via ⚙️ button or `⌘,`
+- **`/api/providers` endpoint** — returns available providers with health check status, latency, detected model name. LM Studio pinged in real-time
+- **404 catch-all page** (`$.tsx`) — custom not-found with CTA back to home
+- **HTML auto-repair** (`htmlRepair.ts`) — heuristic repair for truncated LLM output: closes unclosed tags in reverse order, removes broken mid-tag content, ensures `</body></html>` present. Integrated into `stripCodeFences` pipeline
+- **GitHub Actions release automation** (`.github/workflows/release.yml`) — on tag push: runs full CI, extracts changelog section, creates GitHub Release with proper body. Pre-release auto-detected from `beta`/`alpha` in tag name
+- **Provider selection from UI** — `selectedProvider` state in `home.tsx`, passed as `providerId` to pipeline API. Users can switch between LM Studio / Groq / OpenRouter without restarting server
+
+### Changed
+
+- **Keyboard shortcuts expanded** — added `⌘,` / `Ctrl+,` for Settings, `Esc` now closes Settings drawer too (priority: settings > history > cancel)
+- **Welcome nav** — added ⚙️ settings button, "О проекте" hidden on mobile for space
+
+### Tests
+
+- `tests/htmlRepair.test.ts` — 10 tests for truncated HTML repair (mid-tag cut, void elements, self-closing, nested unclosed, real-world template truncation)
+
+---
+
 ## [1.2.0-beta] — 2026-04-05
 
 ### Added

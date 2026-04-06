@@ -161,8 +161,16 @@ export function HistoryPanel({ onOpen, onClose, isOpen }: Props) {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {source === "loading" && (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-6 h-6 rounded-full border-2 border-slate-700 border-t-blue-500 animate-spin" />
+            <div className="space-y-3 animate-pulse">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="p-4 bg-slate-900 border border-slate-800 rounded-xl"
+                >
+                  <div className="h-3 bg-slate-800 rounded w-3/4 mb-3" />
+                  <div className="h-2 bg-slate-800 rounded w-1/2" />
+                </div>
+              ))}
             </div>
           )}
 

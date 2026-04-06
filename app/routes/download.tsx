@@ -1,5 +1,8 @@
 import { useState } from "react";
 import type { MetaFunction } from "react-router";
+import { useAuth } from "~/lib/contexts/AuthContext";
+import { AuthBadge } from "~/components/simple/AuthBadge";
+import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
 
 export const meta: MetaFunction = () => [
   { title: "Скачать NIT Tunnel — NIT Builder" },
@@ -16,7 +19,9 @@ const SERVER_URL =
     : "ws://nit.vibecoding.by/api/tunnel";
 
 export default function Download() {
+  const auth = useAuth();
   const [copied, setCopied] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   function copy(text: string, key: string) {
     navigator.clipboard.writeText(text).then(() => {
@@ -27,6 +32,8 @@ export default function Download() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
+      <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
       {/* Nav */}
       <nav className="px-6 py-5 max-w-6xl mx-auto w-full flex justify-between items-center">
         <a
@@ -35,7 +42,7 @@ export default function Download() {
         >
           NIT Builder
         </a>
-        <div className="flex gap-2 text-sm">
+        <div className="flex gap-2 text-sm items-center">
           <a
             href="/about"
             className="hidden sm:block px-4 py-2 text-slate-400 hover:text-white transition"
@@ -46,10 +53,11 @@ export default function Download() {
             href="https://github.com/igor1000rr/nit-builder"
             target="_blank"
             rel="noopener"
-            className="px-4 py-2 bg-slate-800 rounded-full hover:bg-slate-700 transition"
+            className="hidden md:inline-flex px-4 py-2 bg-slate-800 rounded-full hover:bg-slate-700 transition items-center gap-2"
           >
             GitHub
           </a>
+          <AuthBadge auth={auth} onOpenSettings={() => setSettingsOpen(true)} />
         </div>
       </nav>
 

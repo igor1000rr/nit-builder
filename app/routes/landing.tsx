@@ -1,3 +1,5 @@
+import { useAuth } from "~/lib/contexts/AuthContext";
+
 export function meta() {
   return [
     { title: "NIT Builder — Создай сайт за минуту через свой GPU" },
@@ -9,6 +11,7 @@ export function meta() {
 }
 
 export default function Landing() {
+  const auth = useAuth();
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <nav className="fixed w-full top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-900">
@@ -23,12 +26,23 @@ export default function Landing() {
             <a href="#faq" className="text-slate-400 hover:text-white">FAQ</a>
           </div>
           <div className="flex items-center gap-2">
-            <a href="/login" className="hidden sm:inline px-3 py-2 text-sm text-slate-400 hover:text-white transition">
-              Войти
-            </a>
-            <a href="/register" className="px-5 py-2 bg-gradient-to-r from-blue-500 to-violet-500 rounded-full text-sm font-medium hover:scale-105 transition">
-              Регистрация
-            </a>
+            {auth.status === "authenticated" ? (
+              <a
+                href="/"
+                className="px-5 py-2 bg-gradient-to-r from-blue-500 to-violet-500 rounded-full text-sm font-medium hover:scale-105 transition"
+              >
+                Открыть приложение →
+              </a>
+            ) : (
+              <>
+                <a href="/login" className="hidden sm:inline px-3 py-2 text-sm text-slate-400 hover:text-white transition">
+                  Войти
+                </a>
+                <a href="/register" className="px-5 py-2 bg-gradient-to-r from-blue-500 to-violet-500 rounded-full text-sm font-medium hover:scale-105 transition">
+                  Регистрация
+                </a>
+              </>
+            )}
           </div>
         </div>
       </nav>

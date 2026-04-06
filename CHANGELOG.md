@@ -3,6 +3,98 @@
 All notable changes to NIT Builder are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-alpha.0] — 2026-04-06 (branch: `v2-tunnel`, work in progress)
+
+Major architectural shift from single-instance cloud tool to peer-to-peer
+distributed compute network. Users bring their own GPU via a tunnel client,
+VPS only routes WebSocket messages between browsers and user tunnels.
+
+### Added (Phase A — tunnel protocol MVP)
+
+- **Monorepo structure** with npm workspaces: `shared/` (types) and `tunnel/` (Node CLI client)
+- **`shared/src/protocol.ts`** — WebSocket protocol types (TunnelToServer, ServerToTunnel, BrowserToServer, ServerToBrowser) with PROTOCOL_VERSION constant
+- **`app/lib/services/tunnelRegistry.server.ts`** — in-memory state manager: multi-tunnel per user, multi-tab browser sessions, request routing, abort propagation, status broadcasting, metric counters (340 lines)
+- **`app/lib/server/wsHandlers.server.ts`** — WebSocket handlers for `/api/tunnel` and `/api/control` with protocol version check, auth, heartbeat, response forwarding
+- **`server.ts`** — custom HTTP+WS server via tsx, replaces `react-router-serve`, single port, graceful shutdown
+- **`tunnel/`** Node.js CLI client: LM Studio streaming proxy, WebSocket reconnect with exponential backoff (5s→60s), heartbeat, abort propagation, argument parsing
+- **`docs/architecture/v2-tunnel.md`** — ADR with architecture diagram, protocol spec, phase breakdown (400 lines)
+- **19 tests** in `tests/tunnelRegistry.test.ts`
+
+### Added (Phase B — Appwrite auth integration)
+
+**B.1 — SDK wrapper + tunnel tokens:**
+- `app/lib/server/tunnelTokens.server.ts` — two-field scheme: HMAC-SHA256 lookup (deterministic, DB index) + argon2id hash (random salt, verification). Fixes design flaw where argon2 salt prevents lookup
+- `app/lib/server/appwrite.server.ts` — SDK wrapper, types (NitUser, NitSite, NitGeneration), session operations
+- `scripts/appwrite-migrate.ts` — standalone idempotent migration script (creates DB, 3 collections, indexes)
+- 22 tests in `tests/tunnelTokens.test.ts`
+- New env vars: `APPWRITE_API_KEY`, `NIT_TOKEN_LOOKUP_SECRET`
+
+**B.2 — Auth endpoints:**
+- `POST /api/auth/register` — Zod validation, creates Appwrite account + nit_users doc, shows tunnel token once
+- `POST /api/auth/login` — rate limited (10/min/IP), sets HttpOnly session cookie
+- `POST /api/auth/logout` — invalidates session + clears cookie
+- `GET /api/auth/me` — returns auth state + tunnel status
+- `POST /api/auth/regenerate-tunnel-token` — requires password re-entry for safety
+- `sessionCookie.server.ts`, `requireAuth.server.ts` helpers
+- HttpOnly, SameSite=Lax, Secure in prod, Max-Age 30 days
+
+**B.3 — Real auth in wsHandlers:**
+- Replaced dev-stub `validateTunnelToken` with `findUserByTunnelToken` (HMAC lookup + argon2 verify)
+- Browser auto-auth via Cookie header during WebSocket upgrade (no handshake message needed)
+- Dev fallback preserved when `APPWRITE_API_KEY` not set (for local testing)
+
+**B.4 — Login/register UI:**
+- `app/routes/login.tsx` — email+password form
+- `app/routes/register.tsx` — two-step flow: form → token display screen with copy button
+- Updated `SettingsDrawer.tsx` with Account section (email, tunnel status, logout) and Tunnel Token section (regenerate flow with password re-entry)
+
+**B.5 — home.tsx WebSocket integration:**
+- `app/lib/hooks/useAuth.ts` — fetches `/api/auth/me` on mount
+- `app/lib/hooks/useControlSocket.ts` — WebSocket manager with auto-reconnect (2s→30s), heartbeat, typed events
+- Dual-path `createSite` and `polishSite`: WebSocket if authed+tunnel online, HTTP fallback otherwise
+- Tunnel status indicator in nav (green pulsing dot when online)
+- Amber banner when tunnel offline, blue CTA for anonymous users
+- `cancelGeneration` sends WS abort in addition to AbortController
+
+**B.6 — Мои сайты → Appwrite:**
+- `GET /api/sites` / `POST /api/sites` — list and save (Zod validated)
+- `GET /api/sites/:id` / `DELETE /api/sites/:id` — individual site with ownership check
+- `remoteHistoryStore.ts` — Appwrite clients + `migrateLocalHistoryIfNeeded()` helper
+- `HistoryPanel.tsx` rewritten with dual-source: localStorage for guests, Appwrite for authenticated
+- Auto-migration from localStorage on first authenticated history view
+- Fire-and-forget remote save in both WS and HTTP paths
+
+### Changed
+
+- `package.json` version bump: `1.3.1-beta` → `2.0.0-alpha.0`
+- npm workspaces: root is now a monorepo with `shared` and `tunnel` workspaces
+- `tsconfig.json`: `allowImportingTsExtensions: true` for server.ts direct TS imports
+- Dependencies added: `node-appwrite@14.2.0`, `argon2@0.44.0`, `tsx@^4.19.0`, `ws@^8.18.0`
+
+### Deployment notes
+
+Phase B requires manual Appwrite setup before deploy:
+```bash
+export APPWRITE_API_KEY=your-server-key
+npm run migrate:appwrite     # creates DB schema (idempotent)
+export NIT_TOKEN_LOOKUP_SECRET=$(openssl rand -hex 32)
+```
+
+### Known limitations
+
+- Tauri desktop client not yet implemented (Phase C pending)
+- Embedded llama.cpp runtime not yet implemented (Phase D pending)
+- Auth endpoints lack unit tests (need Appwrite mocks)
+- Container can't reach appwrite.vibecoding.by for live verification — code compiles and smoke-tested against mock LM Studio only
+
+### Roadmap
+
+- Phase C — Tauri GUI tunnel client (.dmg/.exe/.AppImage)
+- Phase D — Embedded llama.cpp runtime in client
+- v2.0.0 stable — production deploy on VPS 185.218.0.7
+
+---
+
 ## [1.3.1-beta] — 2026-04-06
 
 ### Fixed

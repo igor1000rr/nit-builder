@@ -9,6 +9,7 @@ import { HistoryPanel } from "~/components/simple/HistoryPanel";
 import { ToastContainer } from "~/components/simple/ToastContainer";
 import { parseSseStream } from "~/lib/utils/sseParser";
 import { saveToHistory, type HistoryEntry } from "~/lib/stores/historyStore";
+import { saveRemoteSite } from "~/lib/stores/remoteHistoryStore";
 import { toast } from "~/lib/stores/toastStore";
 import { useKeyboardShortcuts } from "~/lib/hooks/useKeyboardShortcuts";
 import { useAuth } from "~/lib/hooks/useAuth";
@@ -96,7 +97,7 @@ export default function Home() {
           setCurrentStep("done");
           activeRequestIdRef.current = null;
 
-          // Save to history
+          // Save to history (local + remote if authed)
           try {
             const entry: HistoryEntry = {
               id: crypto.randomUUID(),
@@ -107,6 +108,13 @@ export default function Home() {
               html: event.html,
             };
             saveToHistory(entry);
+            // Fire-and-forget remote save (non-blocking, ignore errors)
+            void saveRemoteSite({
+              prompt: lastPrompt,
+              html: event.html,
+              templateId: event.templateId,
+              templateName: event.templateName,
+            });
           } catch {
             // ignore storage failures
           }
@@ -246,6 +254,15 @@ export default function Home() {
             templateId: localTemplateId,
             templateName: localTemplateName,
           });
+          // Fire-and-forget remote save when authed
+          if (auth.status === "authenticated") {
+            void saveRemoteSite({
+              prompt,
+              html: accumulated,
+              templateId: localTemplateId,
+              templateName: localTemplateName,
+            });
+          }
           toast.success("Сайт создан и сохранён в истории");
         }
 

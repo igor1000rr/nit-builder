@@ -15,6 +15,9 @@ export default [
   route("api/auth/logout", "routes/api.auth.logout.ts"),
   route("api/auth/me", "routes/api.auth.me.ts"),
   route("api/auth/regenerate-tunnel-token", "routes/api.auth.regenerate-tunnel-token.ts"),
+  // Sites CRUD (Phase B.6)
+  route("api/sites", "routes/api.sites.ts"),
+  route("api/sites/:id", "routes/api.sites.$id.ts"),
   // Static assets
   route("sitemap.xml", "routes/sitemap[.xml].ts"),
   route("robots.txt", "routes/robots[.txt].ts"),

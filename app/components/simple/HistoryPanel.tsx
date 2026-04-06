@@ -35,6 +35,13 @@ export function HistoryPanel({ onOpen, onClose, isOpen }: Props) {
   const [entries, setEntries] = useState<DisplayEntry[]>([]);
   const [loadingEntry, setLoadingEntry] = useState<string | null>(null);
 
+  // Clear entries immediately when auth status changes (logout/login)
+  // to prevent showing previous user's data while new fetch loads
+  useEffect(() => {
+    setEntries([]);
+    setSource("loading");
+  }, [auth.status]);
+
   useEffect(() => {
     if (!isOpen) return;
 

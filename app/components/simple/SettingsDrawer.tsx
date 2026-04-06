@@ -247,7 +247,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
             </div>
           )}
 
-                    {/* Keyboard shortcuts */}
+          {/* Keyboard shortcuts */}
           <div>
             <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">Горячие клавиши</h3>
             <div className="space-y-2">

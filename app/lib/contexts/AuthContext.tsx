@@ -48,6 +48,48 @@ type ApiResponse = {
   tunnel?: { status: "online" | "offline"; activeTunnels: number };
 };
 
+const CACHE_KEY = "nit_auth_cache";
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+type CachedAuth = {
+  state: AuthState;
+  cachedAt: number;
+};
+
+function readCache(): AuthState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as CachedAuth;
+    if (Date.now() - cached.cachedAt > CACHE_TTL_MS) {
+      window.localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+    // Only trust cached "authenticated" state — never cache "loading"
+    if (cached.state.status !== "authenticated") return null;
+    return cached.state;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(state: AuthState): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (state.status === "authenticated") {
+      window.localStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify({ state, cachedAt: Date.now() } satisfies CachedAuth),
+      );
+    } else if (state.status === "unauthenticated") {
+      window.localStorage.removeItem(CACHE_KEY);
+    }
+  } catch {
+    // localStorage may be unavailable (private mode, quota exceeded)
+  }
+}
+
 async function fetchAuth(): Promise<AuthState> {
   try {
     const res = await fetch("/api/auth/me", { credentials: "include" });
@@ -69,17 +111,27 @@ async function fetchAuth(): Promise<AuthState> {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [auth, setAuth] = useState<AuthState>({ status: "loading" });
+  // Use cached auth state as initial value if available — gives instant
+  // UI on revisit instead of loading skeleton flash. Background fetch
+  // still revalidates after mount.
+  const [auth, setAuth] = useState<AuthState>(() => {
+    const cached = readCache();
+    return cached ?? { status: "loading" };
+  });
 
   const refetch = useCallback(async () => {
     const next = await fetchAuth();
     setAuth(next);
+    writeCache(next);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     fetchAuth().then((next) => {
-      if (!cancelled) setAuth(next);
+      if (!cancelled) {
+        setAuth(next);
+        writeCache(next);
+      }
     });
     return () => {
       cancelled = true;
@@ -125,3 +177,24 @@ export function useAuthRefetch(): () => Promise<void> {
   if (!ctx) return async () => {};
   return ctx.refetch;
 }
+
+// ─── Exported for tests ─────────────────────────────────────────
+
+/** @internal — exported for tests only */
+export function _readCache(): AuthState | null {
+  return readCache();
+}
+
+/** @internal — exported for tests only */
+export function _writeCache(state: AuthState): void {
+  writeCache(state);
+}
+
+/** @internal — exported for tests only */
+export function _fetchAuth(): Promise<AuthState> {
+  return fetchAuth();
+}
+
+/** @internal — cache key constant for tests */
+export const _CACHE_KEY = CACHE_KEY;
+export const _CACHE_TTL_MS = CACHE_TTL_MS;

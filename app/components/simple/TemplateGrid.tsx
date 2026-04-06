@@ -33,17 +33,42 @@ export function TemplateGrid({ onSelect }: Props) {
 
   return (
     <div className="w-full">
-      <p className="text-center text-sm text-slate-500 mb-4">или выбери готовый шаблон</p>
-      <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 max-w-4xl mx-auto">
+      <div
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-px"
+        style={{
+          background: "var(--line-strong)",
+          border: "1px solid var(--line-strong)",
+        }}
+      >
         {templates.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => onSelect(QUICK_PROMPTS[t.id] ?? t.description)}
-            className="group flex flex-col items-center gap-2 p-4 rounded-2xl border border-slate-800 bg-slate-900/50 hover:bg-slate-800 hover:border-blue-500/50 transition"
+            className="group flex flex-col items-start gap-3 p-5 transition-all relative overflow-hidden"
+            style={{ background: "var(--bg)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(0,212,255,0.04)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "var(--bg)";
+            }}
           >
-            <span className="text-3xl group-hover:scale-110 transition">{t.emoji}</span>
-            <span className="text-xs text-slate-400 group-hover:text-white text-center leading-tight">{t.name}</span>
+            <span
+              className="text-[10px] tracking-[0.15em]"
+              style={{ color: "var(--muted-2)" }}
+            >
+              /{String(templates.indexOf(t) + 1).padStart(2, "0")}
+            </span>
+            <span className="text-2xl group-hover:scale-110 transition-transform">
+              {t.emoji}
+            </span>
+            <span
+              className="text-[11px] tracking-[0.05em] leading-tight font-mono group-hover:text-[color:var(--ink)] transition-colors"
+              style={{ color: "var(--muted)" }}
+            >
+              {t.name}
+            </span>
           </button>
         ))}
       </div>

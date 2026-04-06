@@ -3,8 +3,8 @@
  *
  * Three states:
  * - loading: skeleton placeholder while /api/auth/me resolves
- * - unauthenticated: "Войти" + "Регистрация" buttons
- * - authenticated: email + dropdown with "Выйти"
+ * - unauthenticated: "Login" + "Register" buttons
+ * - authenticated: email + dropdown
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -22,7 +22,6 @@ export function AuthBadge({ auth, onOpenSettings }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const refetchAuth = useAuthRefetch();
 
-  // Close menu when clicking outside
   useEffect(() => {
     if (!menuOpen) return;
     function onClick(e: MouseEvent) {
@@ -44,8 +43,6 @@ export function AuthBadge({ auth, onOpenSettings }: Props) {
       await refetchAuth();
       setMenuOpen(false);
     } catch {
-      // Even if logout fails, still try to refetch (server may have
-      // cleared the cookie)
       await refetchAuth();
     } finally {
       setLoggingOut(false);
@@ -54,26 +51,36 @@ export function AuthBadge({ auth, onOpenSettings }: Props) {
 
   if (auth.status === "loading") {
     return (
-      <div className="hidden sm:flex items-center px-3 py-2 rounded-full bg-slate-900 border border-slate-800">
-        <div className="w-16 h-3 bg-slate-800 rounded animate-pulse" />
+      <div
+        className="hidden sm:flex items-center px-3 py-2"
+        style={{ border: "1px solid var(--line)" }}
+      >
+        <div
+          className="w-16 h-3 animate-pulse"
+          style={{ background: "var(--line-strong)" }}
+        />
       </div>
     );
   }
 
   if (auth.status === "unauthenticated") {
     return (
-      <div className="flex gap-1 items-center">
+      <div className="flex gap-1.5 items-center">
         <a
           href="/login"
-          className="px-3 py-2 text-sm text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900"
+          className="px-4 py-2 text-[10px] font-bold tracking-[0.15em] uppercase transition no-underline text-[color:var(--muted)] hover:text-[color:var(--ink)]"
         >
-          Войти
+          Login
         </a>
         <a
           href="/register"
-          className="px-3 py-2 text-sm bg-gradient-to-r from-blue-500 to-violet-500 rounded-full font-semibold transition hover:scale-[1.02] shadow-md shadow-blue-500/20"
+          className="px-4 py-2 text-[10px] font-bold tracking-[0.15em] uppercase no-underline transition text-black"
+          style={{
+            background: "var(--accent)",
+            boxShadow: "var(--glow-cyan-sm)",
+          }}
         >
-          Регистрация
+          Register →
         </a>
       </div>
     );
@@ -87,30 +94,66 @@ export function AuthBadge({ auth, onOpenSettings }: Props) {
       <button
         type="button"
         onClick={() => setMenuOpen(!menuOpen)}
-        className="flex items-center gap-2 pl-1 pr-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-full transition"
-        title={`Залогинен как ${auth.email}`}
+        className="flex items-center gap-2.5 pl-1 pr-3 py-1 transition"
+        style={{
+          border: "1px solid var(--line-strong)",
+          background: "rgba(10,13,24,0.6)",
+        }}
+        title={`Logged in as ${auth.email}`}
       >
-        <span className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-violet-500 flex items-center justify-center text-xs font-bold text-white">
+        <span
+          className="w-7 h-7 flex items-center justify-center text-[11px] font-bold text-black nit-display"
+          style={{ background: "var(--accent)" }}
+        >
           {initial}
         </span>
-        <span className="hidden md:inline text-xs text-slate-300 max-w-[140px] truncate">
+        <span
+          className="hidden md:inline text-[11px] tracking-[0.05em] max-w-[140px] truncate font-mono"
+          style={{ color: "var(--ink-dim)" }}
+        >
           {auth.email}
         </span>
         <svg
-          className={`w-3 h-3 text-slate-500 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+          className={`w-3 h-3 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+          style={{ color: "var(--muted)" }}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          <path
+            strokeLinecap="square"
+            strokeLinejoin="miter"
+            strokeWidth={2}
+            d="M19 9l-7 7-7-7"
+          />
         </svg>
       </button>
 
       {menuOpen && (
-        <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl shadow-black/40 overflow-hidden z-50">
-          <div className="p-3 border-b border-slate-800">
-            <div className="text-xs text-slate-500 mb-1">Вы вошли как</div>
-            <div className="text-sm text-white truncate">{auth.email}</div>
+        <div
+          className="absolute right-0 mt-2 w-72 z-50 backdrop-blur-[10px]"
+          style={{
+            background: "rgba(10,13,24,0.95)",
+            border: "1px solid var(--line-strong)",
+            boxShadow: "0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px var(--line)",
+          }}
+        >
+          <div
+            className="p-4"
+            style={{ borderBottom: "1px solid var(--line)" }}
+          >
+            <div
+              className="text-[10px] tracking-[0.2em] uppercase mb-1"
+              style={{ color: "var(--accent-glow)" }}
+            >
+              // signed in as
+            </div>
+            <div
+              className="text-[12px] font-mono truncate"
+              style={{ color: "var(--ink)" }}
+            >
+              {auth.email}
+            </div>
           </div>
           <button
             type="button"
@@ -118,26 +161,54 @@ export function AuthBadge({ auth, onOpenSettings }: Props) {
               setMenuOpen(false);
               onOpenSettings();
             }}
-            className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-800 transition flex items-center gap-2"
+            className="w-full text-left px-4 py-3 text-[11px] tracking-[0.1em] uppercase transition flex items-center gap-3"
+            style={{ color: "var(--ink-dim)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(0,212,255,0.05)";
+              e.currentTarget.style.color = "var(--accent-glow)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--ink-dim)";
+            }}
           >
-            <span>⚙️</span>
-            <span>Настройки и токен</span>
+            <span style={{ color: "var(--accent-glow)" }}>⚙</span>
+            <span>Settings · token</span>
           </button>
           <a
             href="/download"
-            className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-800 transition flex items-center gap-2"
+            className="w-full text-left px-4 py-3 text-[11px] tracking-[0.1em] uppercase no-underline transition flex items-center gap-3"
+            style={{ color: "var(--ink-dim)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(0,212,255,0.05)";
+              e.currentTarget.style.color = "var(--accent-glow)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--ink-dim)";
+            }}
           >
-            <span>↓</span>
-            <span>Скачать tunnel клиент</span>
+            <span style={{ color: "var(--accent-glow)" }}>↓</span>
+            <span>Download tunnel CLI</span>
           </a>
           <button
             type="button"
             onClick={handleLogout}
             disabled={loggingOut}
-            className="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition flex items-center gap-2 border-t border-slate-800 disabled:opacity-50"
+            className="w-full text-left px-4 py-3 text-[11px] tracking-[0.1em] uppercase transition flex items-center gap-3 disabled:opacity-50"
+            style={{
+              borderTop: "1px solid var(--line)",
+              color: "var(--magenta)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255,46,147,0.05)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
           >
             <span>⏻</span>
-            <span>{loggingOut ? "Выходим..." : "Выйти"}</span>
+            <span>{loggingOut ? "Logging out..." : "Log out"}</span>
           </button>
         </div>
       )}

@@ -132,56 +132,111 @@ export function HistoryPanel({ onOpen, onClose, isOpen }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-start justify-end p-4"
+      className="fixed inset-0 z-[90] backdrop-blur-sm flex items-start justify-end p-4"
+      style={{ background: "rgba(0,0,0,0.7)" }}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md h-full bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-md h-full overflow-hidden flex flex-col"
+        style={{
+          background: "var(--bg)",
+          border: "1px solid var(--line-strong)",
+          boxShadow: "0 30px 80px rgba(0,0,0,0.6)",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div
+          className="px-6 py-5 flex items-center justify-between"
+          style={{ borderBottom: "1px solid var(--line)" }}
+        >
           <div>
-            <h3 className="font-semibold text-white">Мои сайты</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <div
+              className="text-[10px] tracking-[0.2em] uppercase mb-1"
+              style={{ color: "var(--accent-glow)" }}
+            >
+              // history
+            </div>
+            <h3 className="nit-display text-[20px]" style={{ color: "var(--ink)" }}>
+              YOUR SITES
+            </h3>
+            <p
+              className="text-[10px] tracking-[0.1em] uppercase mt-1"
+              style={{ color: "var(--muted-2)" }}
+            >
               {source === "loading"
-                ? "загружаем..."
+                ? "loading..."
                 : entries.length === 0
-                  ? "пусто"
-                  : `${entries.length} ${source === "remote" ? "· синхронизировано" : "· локально"}`}
+                  ? "empty"
+                  : `${entries.length} · ${source === "remote" ? "synced" : "local only"}`}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white transition"
+            className="w-9 h-9 transition flex items-center justify-center"
+            style={{
+              border: "1px solid var(--line-strong)",
+              color: "var(--muted)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--magenta)";
+              e.currentTarget.style.color = "var(--magenta)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--line-strong)";
+              e.currentTarget.style.color = "var(--muted)";
+            }}
           >
             ✕
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {source === "loading" && (
-            <div className="space-y-3 animate-pulse">
+            <div className="space-y-2">
               {[0, 1, 2].map((i) => (
                 <div
                   key={i}
-                  className="p-4 bg-slate-900 border border-slate-800 rounded-xl"
+                  className="p-4 animate-pulse"
+                  style={{
+                    background: "rgba(10,13,24,0.6)",
+                    border: "1px solid var(--line)",
+                  }}
                 >
-                  <div className="h-3 bg-slate-800 rounded w-3/4 mb-3" />
-                  <div className="h-2 bg-slate-800 rounded w-1/2" />
+                  <div
+                    className="h-3 w-3/4 mb-3"
+                    style={{ background: "var(--line-strong)" }}
+                  />
+                  <div
+                    className="h-2 w-1/2"
+                    style={{ background: "var(--line)" }}
+                  />
                 </div>
               ))}
             </div>
           )}
 
           {source !== "loading" && entries.length === 0 && (
-            <div className="text-center py-16">
-              <div className="text-5xl mb-4 opacity-20">📄</div>
-              <p className="text-slate-500 text-sm">Сайтов пока нет</p>
-              <p className="text-slate-600 text-xs mt-2">
+            <div className="text-center py-20">
+              <div
+                className="text-[10px] tracking-[0.2em] uppercase mb-3"
+                style={{ color: "var(--muted-2)" }}
+              >
+                // null
+              </div>
+              <p
+                className="nit-display text-[24px] mb-3"
+                style={{ color: "var(--muted)" }}
+              >
+                NO SITES YET
+              </p>
+              <p
+                className="text-[11px] tracking-[0.05em] max-w-[260px] mx-auto"
+                style={{ color: "var(--muted-2)" }}
+              >
                 {source === "remote"
-                  ? "Созданные сайты будут сохраняться в твой аккаунт"
-                  : "Войди в аккаунт чтобы сохранять между устройствами"}
+                  ? "Generated sites will sync to your account"
+                  : "Sign in to sync between devices"}
               </p>
             </div>
           )}
@@ -192,24 +247,60 @@ export function HistoryPanel({ onOpen, onClose, isOpen }: Props) {
               type="button"
               disabled={loadingEntry === entry.id}
               onClick={() => handleOpen(entry.id, entry.source)}
-              className="w-full text-left p-4 bg-slate-900 border border-slate-800 hover:border-blue-500/50 rounded-xl transition group disabled:opacity-50"
+              className="w-full text-left p-4 transition group disabled:opacity-50"
+              style={{
+                background: "rgba(10,13,24,0.6)",
+                border: "1px solid var(--line)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--accent)";
+                e.currentTarget.style.background = "rgba(0,212,255,0.04)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--line)";
+                e.currentTarget.style.background = "rgba(10,13,24,0.6)";
+              }}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white font-medium line-clamp-1">
+                  <p
+                    className="text-[12px] font-mono line-clamp-2 leading-snug"
+                    style={{ color: "var(--ink)" }}
+                  >
                     {entry.prompt}
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {entry.templateName} · {formatDate(entry.createdAt)}
-                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span
+                      className="text-[9px] tracking-[0.15em] uppercase px-1.5 py-0.5"
+                      style={{
+                        color: "var(--accent-glow)",
+                        border: "1px solid var(--line-strong)",
+                      }}
+                    >
+                      {entry.templateName}
+                    </span>
+                    <span
+                      className="text-[10px] tracking-[0.05em]"
+                      style={{ color: "var(--muted-2)" }}
+                    >
+                      {formatDate(entry.createdAt)}
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={(e) => handleDelete(entry.id, entry.source, e)}
-                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition"
-                  aria-label="Удалить"
+                  className="opacity-0 group-hover:opacity-100 transition text-[14px]"
+                  style={{ color: "var(--muted)" }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = "var(--magenta)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = "var(--muted)";
+                  }}
+                  aria-label="Delete"
                 >
-                  🗑
+                  ✕
                 </button>
               </div>
             </button>
@@ -217,21 +308,36 @@ export function HistoryPanel({ onOpen, onClose, isOpen }: Props) {
         </div>
 
         {entries.length > 0 && source === "local" && (
-          <div className="px-5 py-3 border-t border-slate-800">
-            <p className="text-xs text-slate-600 text-center">
-              История только в этом браузере ·{" "}
-              <a href="/register" className="text-blue-400 hover:text-blue-300">
-                зарегистрируйся
-              </a>{" "}
-              чтобы сохранять в облако
+          <div
+            className="px-5 py-4"
+            style={{ borderTop: "1px solid var(--line)" }}
+          >
+            <p
+              className="text-[10px] tracking-[0.1em] uppercase text-center"
+              style={{ color: "var(--muted-2)" }}
+            >
+              Local browser only ·{" "}
+              <a
+                href="/register"
+                className="no-underline transition"
+                style={{ color: "var(--accent-glow)" }}
+              >
+                register →
+              </a>
             </p>
           </div>
         )}
 
         {entries.length > 0 && source === "remote" && (
-          <div className="px-5 py-3 border-t border-slate-800">
-            <p className="text-xs text-slate-600 text-center">
-              Синхронизировано с твоим аккаунтом
+          <div
+            className="px-5 py-4"
+            style={{ borderTop: "1px solid var(--line)" }}
+          >
+            <p
+              className="text-[10px] tracking-[0.1em] uppercase text-center"
+              style={{ color: "var(--muted-2)" }}
+            >
+              ✓ synced with your account
             </p>
           </div>
         )}

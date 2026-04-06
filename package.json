@@ -13,7 +13,8 @@
   },
   "workspaces": [
     "shared",
-    "tunnel"
+    "tunnel",
+    "tunnel/desktop/ui"
   ],
   "scripts": {
     "dev": "react-router dev",

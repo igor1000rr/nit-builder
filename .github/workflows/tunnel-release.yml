@@ -1,0 +1,102 @@
+name: Tunnel Desktop Release
+
+# Builds NIT Tunnel Desktop for macOS (Apple Silicon + Intel), Windows, Linux
+# on tag push matching tunnel-v*, attaches artifacts to a GitHub Release.
+#
+# Requires secrets (configure in repo settings → Secrets → Actions):
+#   - TAURI_SIGNING_PRIVATE_KEY       — Tauri updater signing key (optional)
+#   - TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+#   - APPLE_CERTIFICATE               — base64 p12 (optional, for signed .dmg)
+#   - APPLE_CERTIFICATE_PASSWORD
+#   - APPLE_SIGNING_IDENTITY
+#   - APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+#
+# Without signing secrets, unsigned builds will still be produced.
+
+on:
+  push:
+    tags:
+      - "tunnel-v*"
+  workflow_dispatch: {}
+
+jobs:
+  build-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+          - platform: "macos-latest"
+            args: "--target x86_64-apple-darwin"
+          - platform: "ubuntu-22.04"
+            args: ""
+          - platform: "windows-latest"
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./tunnel/desktop/src-tauri -> target"
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            pkg-config
+
+      - name: Install UI dependencies
+        run: |
+          cd tunnel/desktop/ui
+          npm install
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: ./tunnel/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "NIT Tunnel ${{ github.ref_name }}"
+          releaseBody: |
+            Cross-platform tunnel client for NIT Builder.
+            
+            Download the appropriate installer for your platform:
+            - **macOS Apple Silicon:** `.dmg` aarch64
+            - **macOS Intel:** `.dmg` x86_64
+            - **Windows:** `-setup.exe` NSIS installer
+            - **Linux:** `.AppImage` or `.deb`
+            
+            See https://github.com/igor1000rr/nit-builder for documentation.
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}

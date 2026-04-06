@@ -22,7 +22,7 @@ export function useAuth(): AuthState {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/me")
+    fetch("/api/auth/me", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(
         (data: {

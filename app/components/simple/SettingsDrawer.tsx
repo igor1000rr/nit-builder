@@ -36,7 +36,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
     if (!isOpen) return;
 
     // Fetch auth state
-    fetch("/api/auth/me")
+    fetch("/api/auth/me", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data: AuthState) => setAuth(data))
       .catch(() => setAuth({ authenticated: false }));
@@ -59,6 +59,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
     try {
       const res = await fetch("/api/auth/regenerate-tunnel-token", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: regeneratePassword }),
       });
@@ -86,7 +87,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
   }
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     window.location.href = "/";
   }
 

@@ -15,6 +15,7 @@ import { useAuth } from "~/lib/hooks/useAuth";
 import { useControlSocket } from "~/lib/hooks/useControlSocket";
 import { uuid } from "~/lib/utils/uuid";
 import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
+import { AuthBadge } from "~/components/simple/AuthBadge";
 
 type ViewMode = "welcome" | "generating" | "editing";
 type PipelineStep = "plan" | "template" | "code" | "done";
@@ -201,6 +202,7 @@ export default function Home() {
       try {
         const res = await fetch("/api/pipeline/simple", {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             mode: "create",
@@ -321,6 +323,7 @@ export default function Home() {
       try {
         const res = await fetch("/api/pipeline/simple", {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             mode: "polish",
@@ -479,48 +482,42 @@ export default function Home() {
           </a>
           <div className="flex gap-2 text-sm items-center">
             {auth.status === "authenticated" && (
-              <div
-                className={`hidden md:flex items-center gap-2 px-3 py-2 rounded-full text-xs ${
-                  socket.tunnelStatus === "online"
-                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                    : "bg-slate-900 text-slate-500 border border-slate-800"
-                }`}
-                title={
-                  socket.tunnelStatus === "online"
-                    ? `${socket.activeTunnels} активных туннелей`
-                    : "Туннель не подключён — запусти NIT Tunnel клиент"
-                }
-              >
-                <span
-                  className={`w-2 h-2 rounded-full ${
+              <>
+                <div
+                  className={`hidden md:flex items-center gap-2 px-3 py-2 rounded-full text-xs ${
                     socket.tunnelStatus === "online"
-                      ? "bg-emerald-400 animate-pulse"
-                      : "bg-slate-600"
+                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                      : "bg-slate-900 text-slate-500 border border-slate-800"
                   }`}
-                />
-                <span>
-                  {socket.tunnelStatus === "online"
-                    ? `Туннель онлайн (${socket.activeTunnels})`
-                    : "Туннель офлайн"}
-                </span>
-              </div>
+                  title={
+                    socket.tunnelStatus === "online"
+                      ? `${socket.activeTunnels} активных туннелей`
+                      : "Туннель не подключён — запусти NIT Tunnel клиент"
+                  }
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      socket.tunnelStatus === "online"
+                        ? "bg-emerald-400 animate-pulse"
+                        : "bg-slate-600"
+                    }`}
+                  />
+                  <span>
+                    {socket.tunnelStatus === "online"
+                      ? `Туннель онлайн (${socket.activeTunnels})`
+                      : "Туннель офлайн"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="px-4 py-2 text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900 flex items-center gap-2"
+                >
+                  <span>📚</span>
+                  <span className="hidden sm:inline">Мои сайты</span>
+                </button>
+              </>
             )}
-            <button
-              type="button"
-              onClick={() => setHistoryOpen(true)}
-              className="px-4 py-2 text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900 flex items-center gap-2"
-            >
-              <span>📚</span>
-              <span className="hidden sm:inline">Мои сайты</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="px-4 py-2 text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900"
-              title="Настройки (⌘,)"
-            >
-              ⚙️
-            </button>
             <a href="/about" className="hidden sm:block px-4 py-2 text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900">
               О проекте
             </a>
@@ -528,13 +525,14 @@ export default function Home() {
               href="https://github.com/igor1000rr/nit-builder"
               target="_blank"
               rel="noopener"
-              className="px-4 py-2 bg-slate-800 rounded-full hover:bg-slate-700 transition inline-flex items-center gap-2"
+              className="hidden md:inline-flex px-4 py-2 bg-slate-800 rounded-full hover:bg-slate-700 transition items-center gap-2"
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
               </svg>
               <span className="hidden sm:inline">GitHub</span>
             </a>
+            <AuthBadge auth={auth} onOpenSettings={() => setSettingsOpen(true)} />
           </div>
         </nav>
 

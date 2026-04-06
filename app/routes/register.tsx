@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MetaFunction } from "react-router";
+import { useAuth } from "~/lib/contexts/AuthContext";
 
 export const meta: MetaFunction = () => [
   { title: "Регистрация — NIT Builder" },
@@ -9,6 +10,7 @@ export const meta: MetaFunction = () => [
 type Step = "form" | "token";
 
 export default function Register() {
+  const auth = useAuth();
   const [step, setStep] = useState<Step>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,6 +19,14 @@ export default function Register() {
   const [error, setError] = useState<string | null>(null);
   const [tunnelToken, setTunnelToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // If already logged in (and not on the post-registration token screen),
+  // send to home — they shouldn't see the form
+  useEffect(() => {
+    if (step === "form" && auth.status === "authenticated") {
+      window.location.href = "/";
+    }
+  }, [step, auth.status]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -580,6 +580,15 @@ export default function Home() {
             </div>
           )}
 
+          {/* Auth loading skeleton — fades in while /api/auth/me resolves */}
+          {auth.status === "loading" && (
+            <div className="mb-6 p-4 bg-slate-900/30 border border-slate-800 rounded-2xl flex items-center gap-3 animate-pulse">
+              <div className="w-5 h-5 rounded-full bg-slate-800" />
+              <div className="flex-1 h-3 bg-slate-800 rounded" />
+              <div className="w-20 h-7 bg-slate-800 rounded-lg" />
+            </div>
+          )}
+
           {/* Not-authenticated prompt — soft encouragement to sign up */}
           {auth.status === "unauthenticated" && (
             <div className="mb-6 p-4 bg-blue-500/5 border border-blue-500/20 rounded-2xl flex items-center gap-3">

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MetaFunction } from "react-router";
+import { useAuth } from "~/lib/contexts/AuthContext";
 
 export const meta: MetaFunction = () => [
   { title: "Вход — NIT Builder" },
@@ -7,10 +8,18 @@ export const meta: MetaFunction = () => [
 ];
 
 export default function Login() {
+  const auth = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // If already logged in, send to home
+  useEffect(() => {
+    if (auth.status === "authenticated") {
+      window.location.href = "/";
+    }
+  }, [auth.status]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

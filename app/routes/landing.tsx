@@ -1,9 +1,9 @@
 export function meta() {
   return [
-    { title: "NIT.BY — AI конструктор сайтов для локальной модели" },
+    { title: "NIT Builder — Создай сайт за минуту через свой GPU" },
     {
       name: "description",
-      content: "Создавай сайты на своём компьютере через LM Studio. Бесплатно, приватно, без интернета. Первая беларусская нейронная сеть.",
+      content: "Бесплатный AI конструктор сайтов. Приноси свой GPU через туннель — генерация полностью на твоей машине, мы только маршрутизируем. Open source.",
     },
   ];
 }
@@ -14,7 +14,7 @@ export default function Landing() {
       <nav className="fixed w-full top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-900">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <a href="/" className="font-bold text-xl bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
-            NIT.BY
+            NIT Builder
           </a>
           <div className="hidden md:flex gap-8 text-sm">
             <a href="#how" className="text-slate-400 hover:text-white">Как это работает</a>
@@ -22,9 +22,14 @@ export default function Landing() {
             <a href="#hardware" className="text-slate-400 hover:text-white">Для какого компьютера</a>
             <a href="#faq" className="text-slate-400 hover:text-white">FAQ</a>
           </div>
-          <a href="/" className="px-5 py-2 bg-gradient-to-r from-blue-500 to-violet-500 rounded-full text-sm font-medium hover:scale-105 transition">
-            Попробовать
-          </a>
+          <div className="flex items-center gap-2">
+            <a href="/login" className="hidden sm:inline px-3 py-2 text-sm text-slate-400 hover:text-white transition">
+              Войти
+            </a>
+            <a href="/register" className="px-5 py-2 bg-gradient-to-r from-blue-500 to-violet-500 rounded-full text-sm font-medium hover:scale-105 transition">
+              Регистрация
+            </a>
+          </div>
         </div>
       </nav>
 
@@ -40,8 +45,8 @@ export default function Landing() {
             </span>
           </h1>
           <p className="text-xl md:text-2xl text-slate-400 max-w-3xl mx-auto mb-12">
-            NIT работает локально через LM Studio. Бесплатно. Приватно. Без интернета.
-            Без подписки. Без облака. Без ограничений.
+            NIT Builder — peer-to-peer AI конструктор сайтов. Подключаешь свой GPU через туннель,
+            генерация идёт на твоей машине. Бесплатно, приватно, open source.
           </p>
           <div className="flex flex-wrap justify-center gap-4 mb-16">
             <a href="/" className="px-8 py-4 bg-gradient-to-r from-blue-500 to-violet-500 rounded-full font-semibold hover:scale-105 transition shadow-lg shadow-blue-500/30">
@@ -53,7 +58,7 @@ export default function Landing() {
           </div>
           <div className="flex flex-wrap justify-center gap-8 text-sm text-slate-500">
             <div className="flex items-center gap-2">✅ Без подписки</div>
-            <div className="flex items-center gap-2">✅ Работает локально</div>
+            <div className="flex items-center gap-2">✅ Свой GPU</div>
             <div className="flex items-center gap-2">✅ Открытый исходный код</div>
             <div className="flex items-center gap-2">✅ Приватность</div>
           </div>
@@ -136,7 +141,7 @@ export default function Landing() {
               <thead>
                 <tr className="border-b border-slate-800">
                   <th className="text-left p-4 text-slate-500">Фича</th>
-                  <th className="text-center p-4 text-blue-400 font-bold">NIT.BY</th>
+                  <th className="text-center p-4 text-blue-400 font-bold">NIT Builder</th>
                   <th className="text-center p-4 text-slate-500">Tilda</th>
                   <th className="text-center p-4 text-slate-500">v0 / Bolt</th>
                   <th className="text-center p-4 text-slate-500">Wix</th>
@@ -146,8 +151,8 @@ export default function Landing() {
                 {[
                   ["Цена", "Бесплатно", "1500₽/мес", "$20/мес", "1200₽/мес"],
                   ["AI генерация", "✅", "❌", "✅", "⚠️"],
-                  ["Работает без интернета", "✅", "❌", "❌", "❌"],
-                  ["Приватность (локально)", "✅", "❌", "❌", "❌"],
+                  ["Свой GPU вместо облака", "✅", "❌", "❌", "❌"],
+                  ["Приватность (твоя машина)", "✅", "❌", "❌", "❌"],
                   ["Экспорт HTML", "✅", "❌", "✅", "❌"],
                   ["Открытый исходник", "✅", "❌", "❌", "❌"],
                 ].map(([feat, nit, tilda, v0, wix]) => (
@@ -205,7 +210,7 @@ export default function Landing() {
 
       <footer className="py-12 px-6 border-t border-slate-900 text-center text-slate-500 text-sm">
         <p className="font-bold bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent text-lg mb-2">
-          NIT.BY
+          NIT Builder
         </p>
         <p>© 2025 · Первая беларусская нейронная сеть · Open source</p>
       </footer>

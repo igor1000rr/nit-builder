@@ -1,9 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { SimplePromptInput } from "~/components/simple/SimplePromptInput";
 import { TemplateGrid } from "~/components/simple/TemplateGrid";
-import { LivePreview } from "~/components/simple/LivePreview";
 import { PolishChat } from "~/components/simple/PolishChat";
-import { PipelineProgress } from "~/components/simple/PipelineProgress";
 import { HistoryPanel } from "~/components/simple/HistoryPanel";
 import { ToastContainer } from "~/components/simple/ToastContainer";
 import { parseSseStream } from "~/lib/utils/sseParser";
@@ -101,6 +99,14 @@ export default function Home() {
           setCurrentStep("done");
           activeRequestIdRef.current = null;
 
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              text: `Готово ✨ Шаблон: ${event.templateName}. Сгенерировано за ${(event.durationMs / 1000).toFixed(1)}s. Опиши правки — применю.`,
+            },
+          ]);
+
           // Save to history (local + remote if authed)
           try {
             const entry: HistoryEntry = {
@@ -127,7 +133,6 @@ export default function Home() {
         }
         case "generate_error": {
           setLoading(false);
-          setMode("welcome");
           activeRequestIdRef.current = null;
 
           let msg = event.error;
@@ -135,6 +140,15 @@ export default function Home() {
             msg = "Твой туннель не подключён. Запусти NIT Tunnel клиент.";
           } else if (event.code === "TUNNEL_DISCONNECTED") {
             msg = "Туннель отключился во время генерации. Попробуй снова.";
+          }
+          setChatMessages((prev) => [
+            ...prev,
+            { role: "assistant", text: `❌ ${msg}` },
+          ]);
+          // Stay on split view if we already have a site or chat history,
+          // otherwise bounce back to welcome
+          if (!html) {
+            setMode("welcome");
           }
           toast.error(msg);
           break;
@@ -166,6 +180,11 @@ export default function Home() {
       setCurrentStep("plan");
       setLastPrompt(prompt);
       pendingHtmlRef.current = "";
+
+      // Seed the chat with the user's initial prompt so the split-view
+      // layout (chat left, preview right) has something to show from
+      // the very first moment of generation.
+      setChatMessages([{ role: "user", text: prompt }]);
 
       // Phase B.5: Prefer WebSocket tunnel path if authed and tunnel online.
       // Events flow through handleWsEvent → state updates happen there.
@@ -637,47 +656,200 @@ export default function Home() {
     );
   }
 
-  // ─── Generating screen ──────────────────────────────
-  if (mode === "generating") {
-    return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col">
-        <ToastContainer />
-        <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
-        <nav className="px-6 py-4 flex justify-between items-center border-b border-slate-900">
-          <a href="/" className="font-bold bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
-            NIT Builder
-          </a>
-          <button
-            type="button"
-            onClick={cancelGeneration}
-            className="text-sm text-slate-500 hover:text-white transition flex items-center gap-2"
-          >
-            Отмена <kbd className="px-1.5 py-0.5 bg-slate-900 border border-slate-800 rounded text-[10px]">Esc</kbd>
-          </button>
-        </nav>
+  // ─── Split layout: chat (left) + preview (right) ──────────────
+  // Used for BOTH "generating" and "editing" modes. During generation
+  // we stream into the right iframe, show the user's prompt as the first
+  // chat bubble, and render a "typing" indicator. After generation the
+  // same layout stays — user can polish via chat on the left.
+  if (mode === "generating" || mode === "editing") {
+    const previewHtml = streamingHtml || html;
+    const isGenerating = mode === "generating";
 
-        <div className="flex-1 flex flex-col">
-          <div className="py-10 px-6">
-            <PipelineProgress
-              currentStep={currentStep}
-              templateName={templateName}
-              streamingChars={streamingChars}
-            />
+    return (
+      <div className="h-screen bg-slate-950 text-white flex flex-col overflow-hidden">
+        <ToastContainer />
+        <HistoryPanel
+          isOpen={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          onOpen={openFromHistory}
+        />
+        <SettingsDrawer
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+        />
+
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-900 bg-slate-950 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <a
+              href="/"
+              className="font-bold text-sm bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent shrink-0"
+            >
+              NIT Builder
+            </a>
+
+            {/* Pipeline status during generation */}
+            {isGenerating && (
+              <div className="hidden md:flex items-center gap-2 text-xs text-slate-400 min-w-0">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    currentStep === "plan" ? "bg-blue-400 animate-pulse" : "bg-slate-700"
+                  }`}
+                />
+                <span
+                  className={
+                    currentStep === "plan"
+                      ? "text-blue-400"
+                      : "text-slate-600"
+                  }
+                >
+                  Анализ
+                </span>
+                <span className="text-slate-800">→</span>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    currentStep === "template"
+                      ? "bg-blue-400 animate-pulse"
+                      : currentStep === "code" || currentStep === "done"
+                        ? "bg-emerald-400"
+                        : "bg-slate-700"
+                  }`}
+                />
+                <span
+                  className={
+                    currentStep === "template"
+                      ? "text-blue-400"
+                      : "text-slate-600"
+                  }
+                >
+                  {templateName ? `Шаблон: ${templateName}` : "Шаблон"}
+                </span>
+                <span className="text-slate-800">→</span>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    currentStep === "code"
+                      ? "bg-blue-400 animate-pulse"
+                      : currentStep === "done"
+                        ? "bg-emerald-400"
+                        : "bg-slate-700"
+                  }`}
+                />
+                <span
+                  className={
+                    currentStep === "code"
+                      ? "text-blue-400"
+                      : "text-slate-600"
+                  }
+                >
+                  Код
+                  {streamingChars > 0 && ` (${streamingChars})`}
+                </span>
+              </div>
+            )}
+
+            {/* Tunnel badge when not generating */}
+            {!isGenerating &&
+              auth.status === "authenticated" &&
+              socket.tunnelStatus !== "unknown" && (
+                <div
+                  className={`hidden md:flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] ${
+                    socket.tunnelStatus === "online"
+                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                      : "bg-slate-900 text-slate-500 border border-slate-800"
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      socket.tunnelStatus === "online"
+                        ? "bg-emerald-400 animate-pulse"
+                        : "bg-slate-600"
+                    }`}
+                  />
+                  <span>
+                    {socket.tunnelStatus === "online"
+                      ? `туннель (${socket.activeTunnels})`
+                      : "офлайн"}
+                  </span>
+                </div>
+              )}
           </div>
 
-          <div className="flex-1 p-4 overflow-auto flex items-start justify-center">
-            {streamingHtml ? (
+          <div className="flex items-center gap-2">
+            {isGenerating ? (
+              <button
+                type="button"
+                onClick={cancelGeneration}
+                className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900 flex items-center gap-1.5"
+                title="Отмена (Esc)"
+              >
+                <span>✕</span>
+                <span className="hidden sm:inline">Отмена</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900 flex items-center gap-1.5"
+                  title="Создать новый сайт"
+                >
+                  <span>➕</span>
+                  <span className="hidden sm:inline">Новый</span>
+                </button>
+                {auth.status === "authenticated" && (
+                  <button
+                    type="button"
+                    onClick={() => setHistoryOpen(true)}
+                    className="hidden sm:flex px-3 py-1.5 text-xs text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900 items-center gap-1.5"
+                    title="Мои сайты (⌘H)"
+                  >
+                    <span>📚</span>
+                    <span className="hidden md:inline">Мои сайты</span>
+                  </button>
+                )}
+              </>
+            )}
+            <AuthBadge
+              auth={auth}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          </div>
+        </div>
+
+        {/* Chat (left) + Preview (right) */}
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-[400px_1fr] overflow-hidden">
+          <PolishChat
+            onPolish={polishSite}
+            messages={chatMessages}
+            loading={loading}
+            loadingLabel={
+              isGenerating
+                ? currentStep === "plan"
+                  ? "анализирую промпт..."
+                  : currentStep === "template"
+                    ? "подбираю шаблон..."
+                    : currentStep === "code"
+                      ? `генерирую код (${streamingChars} симв.)`
+                      : "работаю..."
+                : "применяю правки..."
+            }
+          />
+
+          <div className="flex flex-col bg-slate-900 overflow-hidden">
+            {previewHtml ? (
               <iframe
-                title="streaming preview"
-                srcDoc={streamingHtml}
+                title="preview"
+                srcDoc={previewHtml}
                 sandbox="allow-scripts"
-                className="w-full max-w-6xl border-0 bg-white rounded-xl shadow-2xl"
-                style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}
+                className="w-full h-full border-0 bg-white"
               />
             ) : (
-              <div className="flex flex-col items-center justify-center py-20">
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
                 <div className="w-16 h-16 rounded-full border-4 border-slate-800 border-t-blue-500 animate-spin mb-6" />
-                <p className="text-slate-400 text-sm">Подожди несколько секунд...</p>
+                <p className="text-sm">Подожди несколько секунд...</p>
+                <p className="text-xs mt-2 text-slate-600">
+                  Превью появится здесь по мере генерации
+                </p>
               </div>
             )}
           </div>
@@ -686,66 +858,7 @@ export default function Home() {
     );
   }
 
-  // ─── Editing screen ─────────────────────────────────
-  return (
-    <div className="h-screen bg-slate-950 text-white flex flex-col overflow-hidden">
-      <ToastContainer />
-      <HistoryPanel isOpen={historyOpen} onClose={() => setHistoryOpen(false)} onOpen={openFromHistory} />
-      <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
-
-      {/* Compact top bar — keeps brand + auth visible while editing */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-900 bg-slate-950 shrink-0">
-        <div className="flex items-center gap-3">
-          <a href="/" className="font-bold text-sm bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
-            NIT Builder
-          </a>
-          {auth.status === "authenticated" && socket.tunnelStatus !== "unknown" && (
-            <div
-              className={`hidden md:flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] ${
-                socket.tunnelStatus === "online"
-                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                  : "bg-slate-900 text-slate-500 border border-slate-800"
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  socket.tunnelStatus === "online" ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
-                }`}
-              />
-              <span>
-                {socket.tunnelStatus === "online" ? `туннель (${socket.activeTunnels})` : "офлайн"}
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {auth.status === "authenticated" && (
-            <button
-              type="button"
-              onClick={() => setHistoryOpen(true)}
-              className="hidden sm:flex px-3 py-1.5 text-xs text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900 items-center gap-1.5"
-              title="Мои сайты (⌘H)"
-            >
-              <span>📚</span>
-              <span className="hidden md:inline">Мои сайты</span>
-            </button>
-          )}
-          <AuthBadge auth={auth} onOpenSettings={() => setSettingsOpen(true)} />
-        </div>
-      </div>
-
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_380px] overflow-hidden">
-        <LivePreview
-          html={streamingHtml || html}
-          onOpenCode={() => {
-            const blob = new Blob([streamingHtml || html], { type: "text/html" });
-            const url = URL.createObjectURL(blob);
-            window.open(url, "_blank");
-          }}
-          onNew={reset}
-        />
-        <PolishChat onPolish={polishSite} messages={chatMessages} loading={loading} />
-      </div>
-    </div>
-  );
+  // Fallback (should never reach here — welcome/generating/editing are all
+  // handled above)
+  return null;
 }

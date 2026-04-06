@@ -58,25 +58,62 @@ export type PendingRequest = {
 
 // ─── State ───────────────────────────────────────────────────────
 
-/** All active tunnel connections, grouped by userId (one user may have multiple) */
-const tunnels = new Map<string, TunnelConnection[]>();
+// ─── Singleton state via globalThis ────────────────────────────────
+//
+// CRITICAL: This module gets loaded TWICE in production:
+//   1. Through tsx in server.ts (imports app/lib/server/wsHandlers.server.ts
+//      which imports this file directly via tsx — uses fresh source)
+//   2. Through the React Router build (build/server/index.js bundles all
+//      route loaders, which import this file too — gets a separate copy)
+//
+// Without singleton state, registerTunnel() in copy #1 would update one
+// `stats` object, and getStats() called from /api/health (copy #2) would
+// read a different `stats` object — always zero. This is exactly the
+// "tunnel connects but UI shows offline" bug.
+//
+// Fix: store state on globalThis under a unique key. Both copies of the
+// module reach the same global, so state is shared.
 
-/** All active browser sessions by sessionId */
-const browsers = new Map<string, BrowserSession>();
-
-/** Browsers grouped by userId (for broadcasting tunnel_status updates) */
-const browsersByUser = new Map<string, Set<string>>();
-
-/** All active pending requests */
-const pendingRequests = new Map<string, PendingRequest>();
-
-/** Metric counters */
-const stats = {
-  totalTunnelsRegistered: 0,
-  totalRequestsRouted: 0,
-  totalRequestsCompleted: 0,
-  totalRequestsFailed: 0,
+type RegistryState = {
+  tunnels: Map<string, TunnelConnection[]>;
+  browsers: Map<string, BrowserSession>;
+  browsersByUser: Map<string, Set<string>>;
+  pendingRequests: Map<string, PendingRequest>;
+  stats: {
+    totalTunnelsRegistered: number;
+    totalRequestsRouted: number;
+    totalRequestsCompleted: number;
+    totalRequestsFailed: number;
+  };
 };
+
+const GLOBAL_KEY = "__NIT_TUNNEL_REGISTRY_STATE__";
+
+function getState(): RegistryState {
+  const g = globalThis as unknown as Record<string, RegistryState | undefined>;
+  if (!g[GLOBAL_KEY]) {
+    g[GLOBAL_KEY] = {
+      tunnels: new Map(),
+      browsers: new Map(),
+      browsersByUser: new Map(),
+      pendingRequests: new Map(),
+      stats: {
+        totalTunnelsRegistered: 0,
+        totalRequestsRouted: 0,
+        totalRequestsCompleted: 0,
+        totalRequestsFailed: 0,
+      },
+    };
+  }
+  return g[GLOBAL_KEY]!;
+}
+
+const _state = getState();
+const tunnels = _state.tunnels;
+const browsers = _state.browsers;
+const browsersByUser = _state.browsersByUser;
+const pendingRequests = _state.pendingRequests;
+const stats = _state.stats;
 
 // ─── Tunnel management ────────────────────────────────────────────
 

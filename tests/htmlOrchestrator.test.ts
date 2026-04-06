@@ -32,11 +32,11 @@ vi.mock("~/lib/llm/client", async () => {
   return {
     ...actual,
     getPreferredProvider: vi.fn(() => ({
-      id: "groq",
-      baseUrl: "https://api.groq.com/openai/v1",
-      apiKey: "test-key",
-      defaultModel: "test-model",
-      contextWindow: 128_000,
+      id: "lmstudio",
+      baseUrl: "http://localhost:1234/v1",
+      apiKey: "lm-studio",
+      defaultModel: "qwen2.5-coder-7b-instruct",
+      contextWindow: 32_000,
     })),
     getModel: vi.fn(() => ({} as never)),
   };

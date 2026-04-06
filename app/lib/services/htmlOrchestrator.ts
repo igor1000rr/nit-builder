@@ -29,8 +29,8 @@ export type PipelineEvent =
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
-  userApiKeys?: Record<string, string>;
-  providerOverride?: { providerId?: string; modelName?: string };
+  /** Model name override (provider всегда lmstudio — облачные удалены) */
+  providerOverride?: { modelName?: string };
 };
 
 function stripCodeFences(text: string): string {
@@ -71,11 +71,11 @@ export async function* executeHtmlSimple(
   signal: AbortSignal,
   options: OrchestratorOptions = {},
 ): AsyncGenerator<PipelineEvent> {
-  const provider = getPreferredProvider(options.userApiKeys, options.providerOverride);
+  const provider = getPreferredProvider(options.providerOverride);
   if (!provider) {
     yield {
       type: "error",
-      message: "Нет доступного LLM провайдера. Запусти LM Studio или задай GROQ_API_KEY.",
+      message: "Нет доступного LLM провайдера. Запусти LM Studio с загруженной моделью (по умолчанию http://localhost:1234).",
     };
     return;
   }
@@ -207,9 +207,9 @@ export async function* executeHtmlPolish(
     return;
   }
 
-  const provider = getPreferredProvider(options.userApiKeys, options.providerOverride);
+  const provider = getPreferredProvider(options.providerOverride);
   if (!provider) {
-    yield { type: "error", message: "Нет доступного LLM провайдера." };
+    yield { type: "error", message: "Нет доступного LLM провайдера. Запусти LM Studio." };
     return;
   }
 

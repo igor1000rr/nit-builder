@@ -102,9 +102,9 @@ export type NitUser = Models.Document & {
   tunnelTokenHash: string;
   /** When the tunnel token was last generated */
   tunnelTokenCreatedAt: string;
-  /** Preferred LLM provider: "tunnel" | "groq" | "openrouter" */
-  preferredProvider: "tunnel" | "groq" | "openrouter";
-  /** Encrypted user-provided API keys (JSON string) */
+  /** Preferred LLM provider — only local tunnel supported */
+  preferredProvider: "tunnel";
+  /** Encrypted user-provided API keys (JSON string) — legacy, unused */
   apiKeysJson?: string;
 };
 
@@ -121,7 +121,7 @@ export type NitSite = Models.Document & {
 export type NitGeneration = Models.Document & {
   userId: string;
   mode: "create" | "polish";
-  provider: "tunnel" | "groq" | "openrouter";
+  provider: "tunnel";
   durationMs: number;
   success: boolean;
   errorReason?: string;

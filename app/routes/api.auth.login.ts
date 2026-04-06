@@ -1,7 +1,11 @@
 import { z } from "zod";
 import type { ActionFunctionArgs } from "react-router";
 import { createEmailSession } from "~/lib/server/appwrite.server";
-import { buildSessionCookie, isProduction } from "~/lib/server/sessionCookie.server";
+import {
+  buildSessionCookie,
+  createSessionToken,
+  isProduction,
+} from "~/lib/server/sessionCookie.server";
 import { checkRateLimit } from "~/lib/utils/rateLimit";
 
 // ─── Validation ──────────────────────────────────────────────────
@@ -60,14 +64,19 @@ export async function action({ request }: ActionFunctionArgs) {
   const { email, password } = parsed.data;
 
   try {
-    const { secret, userId } = await createEmailSession(email, password);
+    // createEmailSession verifies password by attempting to create an
+    // Appwrite session. We don't use the returned `secret` (Appwrite's
+    // server SDK doesn't actually populate it). We only need confirmation
+    // that the credentials are valid + the userId.
+    const { userId } = await createEmailSession(email, password);
+    const sessionToken = createSessionToken(userId);
 
     return Response.json(
       { userId, email },
       {
         status: 200,
         headers: {
-          "Set-Cookie": buildSessionCookie(secret, isProduction()),
+          "Set-Cookie": buildSessionCookie(sessionToken, isProduction()),
           "Content-Type": "application/json",
         },
       },

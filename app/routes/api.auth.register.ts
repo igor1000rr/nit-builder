@@ -1,7 +1,11 @@
 import { z } from "zod";
 import type { ActionFunctionArgs } from "react-router";
 import { registerUser, createEmailSession } from "~/lib/server/appwrite.server";
-import { buildSessionCookie, isProduction } from "~/lib/server/sessionCookie.server";
+import {
+  buildSessionCookie,
+  createSessionToken,
+  isProduction,
+} from "~/lib/server/sessionCookie.server";
 
 // ─── Validation ──────────────────────────────────────────────────
 
@@ -49,10 +53,15 @@ export async function action({ request }: ActionFunctionArgs) {
       name,
     });
 
-    // 2. Auto-login: create session
-    const { secret } = await createEmailSession(email, password);
+    // 2. Verify the password works by attempting login (Appwrite needs this
+    //    to fully activate the user). We don't use the returned `secret` —
+    //    Appwrite's server SDK doesn't populate it.
+    await createEmailSession(email, password);
 
-    // 3. Return user info + tunnel token (shown ONCE) + session cookie
+    // 3. Sign our own session token (HMAC over userId)
+    const sessionToken = createSessionToken(userId);
+
+    // 4. Return user info + tunnel token (shown ONCE) + session cookie
     return Response.json(
       {
         userId,
@@ -64,7 +73,7 @@ export async function action({ request }: ActionFunctionArgs) {
       {
         status: 201,
         headers: {
-          "Set-Cookie": buildSessionCookie(secret, isProduction()),
+          "Set-Cookie": buildSessionCookie(sessionToken, isProduction()),
           "Content-Type": "application/json",
         },
       },

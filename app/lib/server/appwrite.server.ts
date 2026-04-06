@@ -190,6 +190,22 @@ export async function getUserBySessionSecret(
 }
 
 /**
+ * Look up a user by their Appwrite user ID using the admin Users API.
+ * Used by the signed-cookie auth path (no Appwrite session needed).
+ */
+export async function getUserById(
+  userId: string,
+): Promise<{ userId: string; email: string } | null> {
+  try {
+    const users = getAdminUsers();
+    const user = await users.get(userId);
+    return { userId: user.$id, email: user.email };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Delete the current session (logout).
  */
 export async function deleteSession(secret: string): Promise<void> {

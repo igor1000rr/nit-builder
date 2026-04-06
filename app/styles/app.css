@@ -433,10 +433,9 @@ iframe.nit-preview::-webkit-scrollbar-thumb {
 /* GLITCH HEADING — единый правильный layered glitch */
 .nit-glitch-text {
   position: relative;
-  display: inline-block;
+  display: block;
   color: var(--ink);
   line-height: 0.85;
-  vertical-align: top;
   text-shadow:
     3px 0 var(--magenta),
     -3px 0 var(--accent-glow),

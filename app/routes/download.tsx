@@ -57,15 +57,6 @@ export default function Download() {
           <span className="nit-display text-lg text-[color:var(--ink)]">NITGEN</span>
         </a>
         <div className="flex gap-2 items-center">
-          <a
-            href="https://github.com/igor1000rr/nit-builder"
-            target="_blank"
-            rel="noopener"
-            className="hidden md:inline-flex px-4 py-2 text-[11px] tracking-[0.15em] uppercase no-underline transition items-center gap-2 text-[color:var(--muted)] hover:text-[color:var(--accent-glow)]"
-            style={{ border: "1px solid var(--line)" }}
-          >
-            GitHub
-          </a>
           <AuthBadge auth={auth} onOpenSettings={() => setSettingsOpen(true)} />
         </div>
       </nav>

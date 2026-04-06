@@ -1,0 +1,29 @@
+{
+  "name": "@nit/tunnel",
+  "version": "0.1.0-alpha",
+  "description": "NIT Builder tunnel client — proxy your LM Studio to NIT Builder sites",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "nit-tunnel": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nit/shared": "*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

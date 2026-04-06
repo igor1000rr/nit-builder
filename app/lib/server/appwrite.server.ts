@@ -128,6 +128,100 @@ export type NitGeneration = Models.Document & {
   templateId?: string;
 };
 
+// ─── Session operations ─────────────────────────────────────────
+
+/**
+ * Create an Appwrite session from email+password.
+ * Returns the session secret which should be stored as HttpOnly cookie.
+ *
+ * Throws if credentials are invalid.
+ */
+export async function createEmailSession(
+  email: string,
+  password: string,
+): Promise<{ secret: string; userId: string }> {
+  const users = getAdminUsers();
+
+  // Find user by email
+  const list = await users.list([Query.equal("email", email), Query.limit(1)]);
+  if (list.users.length === 0) {
+    throw new Error("INVALID_CREDENTIALS");
+  }
+  const user = list.users[0]!;
+
+  // Create a custom token for this user (Appwrite "session tokens" API)
+  const token = await users.createToken(user.$id, 64, 900); // 15 min TTL
+
+  // Verify password by creating a session via account API
+  // NOTE: Appwrite server SDK can't directly verify passwords. The standard pattern
+  // for server-side email+password login is to use account.createEmailPasswordSession
+  // on a client with no auth, then capture the response cookies/secret.
+  const sessionClient = new Client()
+    .setEndpoint(APPWRITE_CONFIG.endpoint)
+    .setProject(APPWRITE_CONFIG.projectId);
+  const account = new Account(sessionClient);
+
+  try {
+    const session = await account.createEmailPasswordSession(email, password);
+    return { secret: session.secret, userId: session.userId };
+  } catch {
+    throw new Error("INVALID_CREDENTIALS");
+  }
+}
+
+/**
+ * Validate a session secret (from HttpOnly cookie) and return the user.
+ * Returns null if the session is invalid or expired.
+ */
+export async function getUserBySessionSecret(
+  secret: string,
+): Promise<{ userId: string; email: string } | null> {
+  try {
+    const client = new Client()
+      .setEndpoint(APPWRITE_CONFIG.endpoint)
+      .setProject(APPWRITE_CONFIG.projectId)
+      .setSession(secret);
+    const account = new Account(client);
+    const user = await account.get();
+    return { userId: user.$id, email: user.email };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete the current session (logout).
+ */
+export async function deleteSession(secret: string): Promise<void> {
+  try {
+    const client = new Client()
+      .setEndpoint(APPWRITE_CONFIG.endpoint)
+      .setProject(APPWRITE_CONFIG.projectId)
+      .setSession(secret);
+    const account = new Account(client);
+    await account.deleteSession("current");
+  } catch {
+    // Session may already be invalid — silently ignore
+  }
+}
+
+/**
+ * Get the user's nit_users document (with tunnel token metadata).
+ */
+export async function getNitUser(userId: string): Promise<NitUser | null> {
+  try {
+    const db = getAdminDatabases();
+    const doc = await db.getDocument<NitUser>(
+      APPWRITE_CONFIG.databaseId,
+      APPWRITE_CONFIG.collections.users,
+      userId,
+    );
+    return doc;
+  } catch {
+    return null;
+  }
+}
+
 // ─── User operations ─────────────────────────────────────────────
 
 /**

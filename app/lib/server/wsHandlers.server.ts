@@ -31,29 +31,46 @@ import {
   type BrowserSession,
 } from "~/lib/services/tunnelRegistry.server";
 import { randomUUID } from "node:crypto";
+import {
+  findUserByTunnelToken,
+  getUserBySessionSecret,
+  isAppwriteConfigured,
+} from "./appwrite.server";
 
 const SERVER_VERSION = "2.0.0-alpha.0" as const;
 
-// ─── Auth stub (Phase A) ──────────────────────────────────────────
-// In Phase B this will be replaced with real Appwrite token validation.
-// For now we use a dev token from env.
+// ─── Auth ─────────────────────────────────────────────────────────
+// Phase B.3: real Appwrite auth, with dev-token fallback when APPWRITE_API_KEY
+// is not set (makes local E2E testing possible without a live Appwrite).
 
-function validateTunnelToken(token: string): { userId: string } | null {
-  const devToken = process.env.NIT_DEV_TUNNEL_TOKEN;
-  if (devToken && token === devToken) {
-    return { userId: "dev-user" };
+async function validateTunnelToken(token: string): Promise<{ userId: string } | null> {
+  // Dev fallback: if Appwrite is not configured, allow a hardcoded env token.
+  // This is ONLY for local development and CI smoke tests.
+  if (!isAppwriteConfigured()) {
+    const devToken = process.env.NIT_DEV_TUNNEL_TOKEN;
+    if (devToken && token === devToken) {
+      return { userId: "dev-user" };
+    }
+    return null;
   }
-  // TODO Phase B: Appwrite lookup
-  return null;
+
+  // Production path: Appwrite lookup with HMAC index + argon2 verify
+  return findUserByTunnelToken(token);
 }
 
-function validateBrowserSession(jwt: string): { userId: string; email: string } | null {
-  // Phase A: accept any non-empty string, map to dev-user
-  if (jwt === "dev-session") {
-    return { userId: "dev-user", email: "dev@local" };
+async function validateBrowserSession(
+  secret: string,
+): Promise<{ userId: string; email: string } | null> {
+  // Dev fallback
+  if (!isAppwriteConfigured()) {
+    if (secret === "dev-session") {
+      return { userId: "dev-user", email: "dev@local" };
+    }
+    return null;
   }
-  // TODO Phase B: Appwrite JWT validation
-  return null;
+
+  // Production: validate session secret via Appwrite account.get()
+  return getUserBySessionSecret(secret);
 }
 
 // ─── Tunnel handler (desktop client → server) ────────────────────
@@ -110,34 +127,41 @@ export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): voi
           return;
         }
 
-        const user = validateTunnelToken(msg.token);
-        if (!user) {
-          closeWithError("INVALID_TOKEN", "Invalid tunnel token");
-          return;
-        }
+        // Async auth — must be wrapped since ws.on("message") is sync
+        const helloMsg = msg;
+        void (async () => {
+          const user = await validateTunnelToken(helloMsg.token);
+          if (!user) {
+            closeWithError("INVALID_TOKEN", "Invalid tunnel token");
+            return;
+          }
 
-        clearTimeout(authTimer);
+          // Check if auth completed too late (timeout fired)
+          if (authed) return;
 
-        authed = {
-          connectionId,
-          userId: user.userId,
-          ws,
-          capabilities: msg.capabilities,
-          clientVersion: msg.clientVersion,
-          connectedAt: Date.now(),
-          lastHeartbeat: Date.now(),
-        };
+          clearTimeout(authTimer);
 
-        registerTunnel(authed);
-        send({
-          type: "welcome",
-          serverVersion: SERVER_VERSION,
-          userId: user.userId,
-          sessionId: connectionId,
-        });
-        console.log(
-          `[tunnel] ✓ Connected: user=${user.userId} client=${msg.clientVersion} runtime=${msg.capabilities.runtime} model=${msg.capabilities.model}`,
-        );
+          authed = {
+            connectionId,
+            userId: user.userId,
+            ws,
+            capabilities: helloMsg.capabilities,
+            clientVersion: helloMsg.clientVersion,
+            connectedAt: Date.now(),
+            lastHeartbeat: Date.now(),
+          };
+
+          registerTunnel(authed);
+          send({
+            type: "welcome",
+            serverVersion: SERVER_VERSION,
+            userId: user.userId,
+            sessionId: connectionId,
+          });
+          console.log(
+            `[tunnel] ✓ Connected: user=${user.userId} client=${helloMsg.clientVersion} runtime=${helloMsg.capabilities.runtime} model=${helloMsg.capabilities.model}`,
+          );
+        })();
         break;
       }
 
@@ -207,6 +231,56 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
     }
   }, 5_000);
 
+  // Try to auto-authenticate from cookie header sent during WebSocket upgrade.
+  // This is the primary auth path — browser sends session cookie with upgrade
+  // request (same-origin), and we validate it via Appwrite.
+  void (async () => {
+    const cookieHeader = req.headers.cookie ?? null;
+    let secret: string | null = null;
+
+    if (cookieHeader) {
+      // Inline parse (avoids pulling sessionCookie.server into bundle here)
+      for (const c of cookieHeader.split(";")) {
+        const [k, ...v] = c.trim().split("=");
+        if (k === "nit_session") {
+          secret = v.join("=") || null;
+          break;
+        }
+      }
+    }
+
+    if (!secret) {
+      // No cookie — browser must send auth message within 5s (dev-only fallback)
+      return;
+    }
+
+    const user = await validateBrowserSession(secret);
+    if (!user) {
+      ws.close(4001, "Invalid session");
+      return;
+    }
+
+    if (authed) return; // race: auth message from client arrived first
+    clearTimeout(authTimer);
+    authed = {
+      sessionId,
+      userId: user.userId,
+      ws,
+      connectedAt: Date.now(),
+    };
+    registerBrowser(authed);
+    send({
+      type: "authed",
+      userId: user.userId,
+      email: user.email,
+      tunnelStatus: hasTunnelForUser(user.userId) ? "online" : "offline",
+      activeTunnels: getTunnelCount(user.userId),
+    });
+    console.log(
+      `[control] ✓ Browser auto-authed via cookie: user=${user.userId} session=${sessionId}`,
+    );
+  })();
+
   ws.on("message", (raw) => {
     let msg: BrowserToServer;
     try {
@@ -219,30 +293,36 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       case "auth": {
         if (authed) return;
 
-        const user = validateBrowserSession(msg.jwt);
-        if (!user) {
-          ws.close(4001, "Auth failed");
-          return;
-        }
+        const authMsg = msg;
+        void (async () => {
+          const user = await validateBrowserSession(authMsg.jwt);
+          if (!user) {
+            ws.close(4001, "Auth failed");
+            return;
+          }
+          if (authed) return; // race: timeout may have fired
 
-        clearTimeout(authTimer);
+          clearTimeout(authTimer);
 
-        authed = {
-          sessionId,
-          userId: user.userId,
-          ws,
-          connectedAt: Date.now(),
-        };
+          authed = {
+            sessionId,
+            userId: user.userId,
+            ws,
+            connectedAt: Date.now(),
+          };
 
-        registerBrowser(authed);
-        send({
-          type: "authed",
-          userId: user.userId,
-          email: user.email,
-          tunnelStatus: hasTunnelForUser(user.userId) ? "online" : "offline",
-          activeTunnels: getTunnelCount(user.userId),
-        });
-        console.log(`[control] ✓ Browser authed: user=${user.userId} session=${sessionId}`);
+          registerBrowser(authed);
+          send({
+            type: "authed",
+            userId: user.userId,
+            email: user.email,
+            tunnelStatus: hasTunnelForUser(user.userId) ? "online" : "offline",
+            activeTunnels: getTunnelCount(user.userId),
+          });
+          console.log(
+            `[control] ✓ Browser authed: user=${user.userId} session=${sessionId}`,
+          );
+        })();
         break;
       }
 

@@ -9,6 +9,53 @@ Major architectural shift from single-instance cloud tool to peer-to-peer
 distributed compute network. Users bring their own GPU via a tunnel client,
 VPS only routes WebSocket messages between browsers and user tunnels.
 
+### Added (Phase B — Appwrite auth + Мои сайты)
+
+**B.1 — SDK wrapper + tunnel tokens (commit 8159e60):**
+- `app/lib/server/tunnelTokens.server.ts` — two-field scheme: HMAC-SHA256 lookup + argon2id hash
+- `app/lib/server/appwrite.server.ts` — typed wrapper for node-appwrite with NitUser/NitSite/NitGeneration types
+- `scripts/appwrite-migrate.ts` — idempotent migration creating database, collections, attributes, indexes
+- Env: `APPWRITE_API_KEY`, `APPWRITE_PROJECT_ID` (default 69aa2114000211b48e63), `NIT_TOKEN_LOOKUP_SECRET` (openssl rand -hex 32)
+- 22 new tunnelTokens tests
+
+**B.2 — Auth endpoints (commit 1d93712):**
+- `POST /api/auth/register` — Zod validated, creates Appwrite user + nit_users doc + tunnel token, sets HttpOnly cookie
+- `POST /api/auth/login` — rate limited (10/min/IP), sets session cookie
+- `POST /api/auth/logout` — clears cookie, invalidates Appwrite session
+- `GET /api/auth/me` — current user info + live tunnel status
+- `POST /api/auth/regenerate-tunnel-token` — password re-verification, revokes all active tunnels
+- `app/lib/server/sessionCookie.server.ts` — HttpOnly + SameSite=Lax cookie helpers
+- `app/lib/server/requireAuth.server.ts` — middleware for protected routes
+
+**B.3 — wsHandlers Appwrite integration (commit a5fd57b):**
+- Replaced dev-stub auth with `findUserByTunnelToken` (HMAC lookup + argon2 verify)
+- Browser WebSocket auto-auth via Cookie header on upgrade (no handshake message)
+- Dev fallback preserved when `APPWRITE_API_KEY` unset (for CI and local E2E)
+- Race condition protection in async auth IIFE
+
+**B.4 — Login/register UI + settings (commit a8c3b4a):**
+- `app/routes/login.tsx` — Russian form, POST /api/auth/login, redirect on success
+- `app/routes/register.tsx` — two-step flow, tunnel token reveal screen with copy-to-clipboard
+- `SettingsDrawer.tsx` — Account section (email, logout, tunnel status), Tunnel Token section with password-gated regenerate flow
+
+**B.5 — home.tsx WebSocket integration (commit a617ed7):**
+- `app/lib/hooks/useAuth.ts` — fetch /api/auth/me once on mount
+- `app/lib/hooks/useControlSocket.ts` — WebSocket manager with exponential backoff reconnect (2s → 30s), heartbeat every 30s, typed events
+- Dual-path createSite/polishSite: WebSocket if authed+tunnel online, HTTP fallback otherwise
+- Tunnel status indicator in nav (green pulsing dot / grey offline)
+- Amber 'Туннель не подключён' banner with Settings CTA
+- Blue sign-up CTA for anonymous users
+- WS-aware cancelGeneration sends abort messages
+
+**B.6 — Мои сайты → Appwrite (this commit):**
+- `app/routes/api.sites.ts` — GET list, POST save (Zod validated)
+- `app/routes/api.sites.$id.ts` — GET one (with HTML), DELETE (ownership check)
+- `app/lib/stores/remoteHistoryStore.ts` — Appwrite-backed client + migration helper
+- `HistoryPanel.tsx` — dual-source: localStorage for guests, Appwrite for authed users
+- Auto-migration from localStorage → Appwrite on first authed open (one-shot, idempotent)
+- Fire-and-forget `saveRemoteSite` in both WS and HTTP paths
+- Footer adapts: 'только в браузере · зарегистрируйся →' vs 'синхронизировано с аккаунтом'
+
 ### Added (Phase A — tunnel protocol MVP)
 
 - **Monorepo structure** with npm workspaces: `shared/` (types) and `tunnel/` (Node CLI client)

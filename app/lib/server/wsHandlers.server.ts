@@ -33,9 +33,10 @@ import {
 import { randomUUID } from "node:crypto";
 import {
   findUserByTunnelToken,
-  getUserBySessionSecret,
+  getUserById,
   isAppwriteConfigured,
 } from "./appwrite.server";
+import { parseSessionCookie, verifySessionToken } from "./sessionCookie.server";
 
 const SERVER_VERSION = "2.0.0-alpha.0" as const;
 
@@ -59,18 +60,21 @@ async function validateTunnelToken(token: string): Promise<{ userId: string } | 
 }
 
 async function validateBrowserSession(
-  secret: string,
+  token: string,
 ): Promise<{ userId: string; email: string } | null> {
   // Dev fallback
   if (!isAppwriteConfigured()) {
-    if (secret === "dev-session") {
+    if (token === "dev-session") {
       return { userId: "dev-user", email: "dev@local" };
     }
     return null;
   }
 
-  // Production: validate session secret via Appwrite account.get()
-  return getUserBySessionSecret(secret);
+  // Production: verify HMAC signature, then look up user by id
+  const userId = verifySessionToken(token);
+  if (!userId) return null;
+
+  return getUserById(userId);
 }
 
 // ─── Tunnel handler (desktop client → server) ────────────────────
@@ -233,29 +237,23 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
 
   // Try to auto-authenticate from cookie header sent during WebSocket upgrade.
   // This is the primary auth path — browser sends session cookie with upgrade
-  // request (same-origin), and we validate it via Appwrite.
+  // request (same-origin), and we verify the HMAC signature locally.
   void (async () => {
     const cookieHeader = req.headers.cookie ?? null;
-    let secret: string | null = null;
+    const token = parseSessionCookie(cookieHeader);
 
-    if (cookieHeader) {
-      // Inline parse (avoids pulling sessionCookie.server into bundle here)
-      for (const c of cookieHeader.split(";")) {
-        const [k, ...v] = c.trim().split("=");
-        if (k === "nit_session") {
-          secret = v.join("=") || null;
-          break;
-        }
-      }
-    }
-
-    if (!secret) {
-      // No cookie — browser must send auth message within 5s (dev-only fallback)
+    if (!token) {
+      console.log(
+        `[control] Browser connected without session cookie (will wait 5s for auth message)`,
+      );
       return;
     }
 
-    const user = await validateBrowserSession(secret);
+    const user = await validateBrowserSession(token);
     if (!user) {
+      console.log(
+        `[control] ✗ Invalid session cookie (token length=${token.length}), closing`,
+      );
       ws.close(4001, "Invalid session");
       return;
     }
@@ -277,7 +275,7 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       activeTunnels: getTunnelCount(user.userId),
     });
     console.log(
-      `[control] ✓ Browser auto-authed via cookie: user=${user.userId} session=${sessionId}`,
+      `[control] ✓ Browser auto-authed via cookie: user=${user.userId} session=${sessionId} tunnelStatus=${hasTunnelForUser(user.userId) ? "online" : "offline"}`,
     );
   })();
 

@@ -491,3 +491,173 @@ iframe.nit-preview::-webkit-scrollbar-thumb {
   transition: opacity 0.3s;
 }
 .nit-glow-border:hover::after { opacity: 1; }
+
+/* ═══════════════════════════════════════════════════════════════
+   EXTRA MOTION LAYERS — больше жизни на фоне
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Pulse-slow для глобального дыхания */
+@keyframes nit-pulse-slow {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.08); }
+}
+
+.nit-orb-1, .nit-orb-2, .nit-orb-3, .nit-orb-4 {
+  animation-name: nit-float, nit-pulse-slow;
+  animation-duration: 14s, 6s;
+  animation-timing-function: ease-in-out, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+}
+.nit-orb-2 { animation-duration: 18s, 7s; animation-direction: reverse, normal; }
+.nit-orb-3 { animation-duration: 20s, 8s; }
+.nit-orb-4 { animation-duration: 22s, 9s; animation-direction: reverse, normal; }
+
+/* ─── Horizontal flying particles ─── */
+.nit-h-particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.nit-h-particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-glow);
+  box-shadow:
+    0 0 10px var(--accent),
+    0 0 20px var(--accent),
+    0 0 30px var(--accent);
+  left: -20px;
+  animation: nit-h-fly linear infinite;
+}
+.nit-h-particle.mag {
+  background: var(--magenta-glow);
+  box-shadow:
+    0 0 10px var(--magenta),
+    0 0 20px var(--magenta),
+    0 0 30px var(--magenta);
+}
+.nit-h-particle.acid {
+  background: var(--acid-glow);
+  box-shadow:
+    0 0 10px var(--acid),
+    0 0 20px var(--acid);
+  width: 3px;
+  height: 3px;
+}
+.nit-h-particle.violet {
+  background: var(--violet-glow);
+  box-shadow:
+    0 0 10px var(--violet),
+    0 0 20px var(--violet),
+    0 0 30px var(--violet);
+}
+.nit-h-particle.reverse {
+  left: auto;
+  right: -20px;
+  animation-name: nit-h-fly-reverse;
+}
+
+@keyframes nit-h-fly {
+  0%   { transform: translateX(0) translateY(0); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateX(110vw) translateY(var(--y-drift, 0)); opacity: 0; }
+}
+@keyframes nit-h-fly-reverse {
+  0%   { transform: translateX(0) translateY(0); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateX(-110vw) translateY(var(--y-drift, 0)); opacity: 0; }
+}
+
+/* ─── Conic light rays — большой вращающийся ray-fan ─── */
+.nit-conic-rays {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 1400px;
+  height: 1400px;
+  margin-left: -700px;
+  margin-top: -700px;
+  pointer-events: none;
+  z-index: 0;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(0, 212, 255, 0.06) 30deg,
+    transparent 60deg,
+    transparent 120deg,
+    rgba(255, 46, 147, 0.05) 150deg,
+    transparent 180deg,
+    transparent 240deg,
+    rgba(157, 77, 255, 0.05) 270deg,
+    transparent 300deg,
+    transparent 360deg
+  );
+  animation: nit-spin 60s linear infinite;
+  -webkit-mask-image: radial-gradient(circle at center, #000 20%, transparent 70%);
+          mask-image: radial-gradient(circle at center, #000 20%, transparent 70%);
+}
+
+/* ─── Beam — горизонтальная неоновая балка ─── */
+.nit-beam {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 1px;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 212, 255, 0.4) 20%,
+    rgba(212, 255, 0, 0.6) 50%,
+    rgba(255, 46, 147, 0.4) 80%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 20px rgba(0, 212, 255, 0.4),
+    0 0 40px rgba(0, 212, 255, 0.2);
+  animation: nit-beam-pulse 4s ease-in-out infinite;
+}
+.nit-beam-1 { top: 22%; }
+.nit-beam-2 { top: 68%; animation-delay: 2s; }
+
+@keyframes nit-beam-pulse {
+  0%, 100% { opacity: 0.3; transform: scaleX(0.95); }
+  50%      { opacity: 0.9; transform: scaleX(1.05); }
+}
+
+/* ─── Glow card — pulsing border accent ─── */
+.nit-card-glow {
+  position: relative;
+  transition: all 0.4s;
+}
+.nit-card-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    transparent 40%,
+    transparent 60%,
+    var(--magenta) 100%
+  );
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.nit-card-glow:hover::before { opacity: 0.7; }
+.nit-card-glow:hover {
+  transform: translateY(-6px);
+  box-shadow:
+    0 20px 60px rgba(0, 212, 255, 0.25),
+    0 0 0 1px var(--accent),
+    0 0 30px rgba(0, 212, 255, 0.4);
+}

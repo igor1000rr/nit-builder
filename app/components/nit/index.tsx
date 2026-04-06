@@ -295,6 +295,57 @@ export function ScanLine() {
   return <div className="nit-scan-line" aria-hidden />;
 }
 
+/* ─── HorizontalParticles — летящие частицы влево/вправо ───── */
+
+export function HorizontalParticles({ count = 20 }: { count?: number }) {
+  const particles = Array.from({ length: count }, (_, i) => {
+    const colors = ["", "mag", "acid", "violet", "", ""];
+    const cls = colors[i % colors.length];
+    const reverse = i % 2 === 0;
+    const top = (i * 13 + 5) % 90;
+    const duration = 10 + (i % 5) * 3;
+    const delay = (i * 0.7) % 12;
+    const drift = ((i * 23) % 100) - 50;
+    return { i, cls, reverse, top, duration, delay, drift };
+  });
+
+  return (
+    <div className="nit-h-particles" aria-hidden>
+      {particles.map((p) => (
+        <span
+          key={p.i}
+          className={`nit-h-particle ${p.cls} ${p.reverse ? "reverse" : ""}`}
+          style={
+            {
+              top: `${p.top}%`,
+              animationDuration: `${p.duration}s`,
+              animationDelay: `${p.delay}s`,
+              "--y-drift": `${p.drift}px`,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ─── ConicRays — большой вращающийся ray fan ─────────────── */
+
+export function ConicRays() {
+  return <div className="nit-conic-rays" aria-hidden />;
+}
+
+/* ─── Beams — горизонтальные неоновые балки ──────────────── */
+
+export function Beams() {
+  return (
+    <>
+      <div className="nit-beam nit-beam-1" aria-hidden />
+      <div className="nit-beam nit-beam-2" aria-hidden />
+    </>
+  );
+}
+
 /* ─── Chip ───────────────────────────────────────────────────── */
 
 export function Chip({

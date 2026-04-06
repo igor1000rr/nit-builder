@@ -1,4 +1,5 @@
 import { TEMPLATE_CATALOG } from "~/lib/config/htmlTemplatesCatalog";
+import { TemplateIcon } from "~/components/nit/TemplateIcon";
 
 type Props = {
   onSelect: (prompt: string) => void;
@@ -40,31 +41,53 @@ export function TemplateGrid({ onSelect }: Props) {
           border: "1px solid var(--line-strong)",
         }}
       >
-        {templates.map((t) => (
+        {templates.map((t, idx) => (
           <button
             key={t.id}
             type="button"
             onClick={() => onSelect(QUICK_PROMPTS[t.id] ?? t.description)}
-            className="group flex flex-col items-start gap-3 p-5 transition-all relative overflow-hidden"
+            className="group relative flex flex-col items-start gap-4 p-6 transition-all overflow-hidden"
             style={{ background: "var(--bg)" }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(0,212,255,0.04)";
+              e.currentTarget.style.background = "rgba(0,212,255,0.05)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = "var(--bg)";
             }}
           >
+            {/* top accent bar — появляется на hover */}
             <span
-              className="text-[10px] tracking-[0.15em]"
-              style={{ color: "var(--muted-2)" }}
+              className="absolute top-0 left-0 right-0 h-px origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"
+              style={{
+                background: "var(--accent)",
+                boxShadow: "0 0 12px var(--accent), 0 0 24px var(--accent)",
+              }}
+            />
+
+            <div className="flex justify-between w-full items-start">
+              <span
+                className="text-[10px] tracking-[0.15em] font-mono"
+                style={{ color: "var(--muted-2)" }}
+              >
+                /{String(idx + 1).padStart(2, "0")}
+              </span>
+              <span
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] tracking-[0.15em]"
+                style={{ color: "var(--accent-glow)" }}
+              >
+                →
+              </span>
+            </div>
+
+            <div
+              className="transition-all duration-300 group-hover:scale-110 group-hover:text-[color:var(--accent-glow)]"
+              style={{ color: "var(--ink-dim)" }}
             >
-              /{String(templates.indexOf(t) + 1).padStart(2, "0")}
-            </span>
-            <span className="text-2xl group-hover:scale-110 transition-transform">
-              {t.emoji}
-            </span>
+              <TemplateIcon id={t.id} className="w-9 h-9" />
+            </div>
+
             <span
-              className="text-[11px] tracking-[0.05em] leading-tight font-mono group-hover:text-[color:var(--ink)] transition-colors"
+              className="text-[11px] tracking-[0.05em] leading-tight font-mono uppercase group-hover:text-[color:var(--ink)] transition-colors"
               style={{ color: "var(--muted)" }}
             >
               {t.name}

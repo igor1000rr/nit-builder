@@ -12,6 +12,9 @@ import {
   Marquee,
   Particles,
   ScanLine,
+  HorizontalParticles,
+  ConicRays,
+  Beams,
 } from "~/components/nit";
 
 export function meta() {
@@ -31,9 +34,12 @@ export default function Landing() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden text-[color:var(--ink)] nit-grain">
+      <ConicRays />
       <GridBg />
       <Orbs />
+      <Beams />
       <Particles count={35} />
+      <HorizontalParticles count={18} />
       <ScanLine />
 
       {/* ─── NAV ─────────────────────────────────────────────── */}

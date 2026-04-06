@@ -207,7 +207,7 @@ async function migrate(): Promise<void> {
   await ensureAttribute("nit_users", "preferredProvider", {
     kind: "string",
     size: 32,
-    required: true,
+    required: false,
     default: "tunnel",
   });
   await ensureAttribute("nit_users", "apiKeysJson", {

@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { SimplePromptInput } from "~/components/simple/SimplePromptInput";
 import { TemplateGrid } from "~/components/simple/TemplateGrid";
-import { LocalModelStatus } from "~/components/simple/LocalModelStatus";
 import { LivePreview } from "~/components/simple/LivePreview";
 import { PolishChat } from "~/components/simple/PolishChat";
 import { PipelineProgress } from "~/components/simple/PipelineProgress";
@@ -14,6 +13,7 @@ import { toast } from "~/lib/stores/toastStore";
 import { useKeyboardShortcuts } from "~/lib/hooks/useKeyboardShortcuts";
 import { useAuth } from "~/lib/hooks/useAuth";
 import { useControlSocket } from "~/lib/hooks/useControlSocket";
+import { uuid } from "~/lib/utils/uuid";
 import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
 
 type ViewMode = "welcome" | "generating" | "editing";
@@ -36,7 +36,7 @@ export default function Home() {
   const [streamingHtml, setStreamingHtml] = useState("");
   const [loading, setLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [projectId] = useState(() => `simple-${crypto.randomUUID()}`);
+  const [projectId] = useState(() => `simple-${uuid()}`);
   const sessionIdRef = useRef<string | undefined>(undefined);
 
   // Pipeline tracking
@@ -47,7 +47,10 @@ export default function Home() {
   // UI state
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  // Provider override — kept for v1 HTTP fallback path. Phase B+ uses tunnel
+  // routing which doesn't need provider selection (LM Studio is the only
+  // option on the user's side via the tunnel client).
+  const selectedProvider: string | null = null;
   const [lastPrompt, setLastPrompt] = useState("");
   const [lastTemplateId, setLastTemplateId] = useState("");
 
@@ -100,7 +103,7 @@ export default function Home() {
           // Save to history (local + remote if authed)
           try {
             const entry: HistoryEntry = {
-              id: crypto.randomUUID(),
+              id: uuid(),
               createdAt: Date.now(),
               prompt: lastPrompt,
               templateId: event.templateId,
@@ -170,7 +173,7 @@ export default function Home() {
         socket.status === "authed" &&
         socket.tunnelStatus === "online"
       ) {
-        const requestId = `req-${crypto.randomUUID()}`;
+        const requestId = `req-${uuid()}`;
         activeRequestIdRef.current = requestId;
         const sent = socket.sendGenerate({
           requestId,
@@ -292,7 +295,7 @@ export default function Home() {
         socket.status === "authed" &&
         socket.tunnelStatus === "online"
       ) {
-        const requestId = `req-${crypto.randomUUID()}`;
+        const requestId = `req-${uuid()}`;
         activeRequestIdRef.current = requestId;
         pendingHtmlRef.current = "";
         setStreamingHtml("");
@@ -468,7 +471,7 @@ export default function Home() {
       <div className="min-h-screen bg-slate-950 text-white">
         <ToastContainer />
         <HistoryPanel isOpen={historyOpen} onClose={() => setHistoryOpen(false)} onOpen={openFromHistory} />
-        <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} />
+        <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
         <nav className="px-6 py-5 flex justify-between items-center max-w-6xl mx-auto">
           <a href="/" className="font-bold text-xl bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
@@ -546,7 +549,6 @@ export default function Home() {
             <p className="text-xl text-slate-400 max-w-2xl mx-auto mb-8">
               AI-конструктор работающий на твоём компьютере через LM Studio. Бесплатно, приватно, без подписки.
             </p>
-            <LocalModelStatus />
           </div>
 
           {/* Tunnel offline banner — prompts authed users to install client */}
@@ -633,7 +635,7 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col">
         <ToastContainer />
-        <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} />
+        <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <nav className="px-6 py-4 flex justify-between items-center border-b border-slate-900">
           <a href="/" className="font-bold bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
             NIT Builder
@@ -682,7 +684,7 @@ export default function Home() {
     <div className="h-screen bg-slate-950 text-white flex flex-col overflow-hidden">
       <ToastContainer />
       <HistoryPanel isOpen={historyOpen} onClose={() => setHistoryOpen(false)} onOpen={openFromHistory} />
-      <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} selectedProvider={selectedProvider} onSelectProvider={setSelectedProvider} />
+      <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_380px] overflow-hidden">
         <LivePreview

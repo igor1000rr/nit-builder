@@ -1,13 +1,5 @@
 import { useEffect, useState } from "react";
 
-type ProviderInfo = {
-  id: string;
-  model: string;
-  contextWindow: number;
-  status: "available" | "checking" | "unreachable";
-  latencyMs?: number;
-};
-
 type AuthState =
   | { authenticated: false }
   | {
@@ -21,20 +13,6 @@ type AuthState =
 type Props = {
   isOpen: boolean;
   onClose: () => void;
-  selectedProvider: string | null;
-  onSelectProvider: (id: string) => void;
-};
-
-const PROVIDER_LABELS: Record<string, { name: string; icon: string; desc: string }> = {
-  lmstudio: { name: "LM Studio", icon: "🖥", desc: "Локально, бесплатно, приватно" },
-  groq: { name: "Groq", icon: "⚡", desc: "Облако, бесплатный tier, быстро" },
-  openrouter: { name: "OpenRouter", icon: "🌐", desc: "Облако, 200+ моделей, платно" },
-};
-
-const STATUS_BADGE: Record<string, { text: string; color: string }> = {
-  available: { text: "доступен", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30" },
-  checking: { text: "проверяем...", color: "text-slate-400 bg-slate-500/10 border-slate-500/30" },
-  unreachable: { text: "недоступен", color: "text-red-400 bg-red-500/10 border-red-500/30" },
 };
 
 const SHORTCUTS = [
@@ -45,9 +23,7 @@ const SHORTCUTS = [
   { keys: "Esc", desc: "Закрыть / Отмена" },
 ];
 
-export function SettingsDrawer({ isOpen, onClose, selectedProvider, onSelectProvider }: Props) {
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [loading, setLoading] = useState(false);
+export function SettingsDrawer({ isOpen, onClose }: Props) {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [showRegenerate, setShowRegenerate] = useState(false);
   const [regeneratePassword, setRegeneratePassword] = useState("");
@@ -58,16 +34,8 @@ export function SettingsDrawer({ isOpen, onClose, selectedProvider, onSelectProv
 
   useEffect(() => {
     if (!isOpen) return;
-    setLoading(true);
-    fetch("/api/providers")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data: { providers: ProviderInfo[] }) => {
-        setProviders(data.providers);
-      })
-      .catch(() => setProviders([]))
-      .finally(() => setLoading(false));
 
-    // Fetch auth state in parallel
+    // Fetch auth state
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data: AuthState) => setAuth(data))
@@ -295,72 +263,7 @@ export function SettingsDrawer({ isOpen, onClose, selectedProvider, onSelectProv
             </div>
           )}
 
-          {/* Provider selection */}
-          <div>
-            <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">LLM провайдер</h3>
-            {loading ? (
-              <div className="flex items-center gap-3 py-4">
-                <div className="w-5 h-5 rounded-full border-2 border-slate-700 border-t-blue-500 animate-spin" />
-                <span className="text-sm text-slate-500">Проверяем провайдеров...</span>
-              </div>
-            ) : providers.length === 0 ? (
-              <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-300">
-                Не найдено ни одного провайдера. Запусти LM Studio или задай GROQ_API_KEY в .env
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {providers.map((p) => {
-                  const label = PROVIDER_LABELS[p.id] ?? { name: p.id, icon: "🤖", desc: "" };
-                  const status = STATUS_BADGE[p.status] ?? STATUS_BADGE.checking!;
-                  const isSelected = selectedProvider === p.id || (!selectedProvider && p.status === "available");
-                  const isDisabled = p.status === "unreachable";
-
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => !isDisabled && onSelectProvider(p.id)}
-                      disabled={isDisabled}
-                      className={`w-full text-left p-4 rounded-xl border transition ${
-                        isSelected
-                          ? "border-blue-500/50 bg-blue-500/10"
-                          : isDisabled
-                          ? "border-slate-800 bg-slate-900/30 opacity-50 cursor-not-allowed"
-                          : "border-slate-800 bg-slate-900/50 hover:border-slate-700"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="text-2xl">{label.icon}</span>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-white">{label.name}</span>
-                              {isSelected && p.status === "available" && (
-                                <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full">активен</span>
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5">{label.desc}</p>
-                          </div>
-                        </div>
-                        <span className={`text-xs px-2 py-1 rounded-full border ${status.color}`}>
-                          {status.text}
-                        </span>
-                      </div>
-                      <div className="mt-3 flex gap-4 text-xs text-slate-500">
-                        <span>Модель: <span className="text-slate-300 font-mono">{p.model}</span></span>
-                        <span>Контекст: <span className="text-slate-300">{(p.contextWindow / 1000).toFixed(0)}K</span></span>
-                        {p.latencyMs !== undefined && (
-                          <span>Пинг: <span className="text-emerald-400">{p.latencyMs}ms</span></span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Keyboard shortcuts */}
+                    {/* Keyboard shortcuts */}
           <div>
             <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">Горячие клавиши</h3>
             <div className="space-y-2">

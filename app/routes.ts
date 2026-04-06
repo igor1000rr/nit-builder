@@ -9,7 +9,6 @@ export default [
   route("api/pipeline/simple", "routes/api.pipeline.simple.ts"),
   route("api/health", "routes/api.health.ts"),
   route("api/metrics", "routes/api.metrics.ts"),
-  route("api/providers", "routes/api.providers.ts"),
   // Auth endpoints (Phase B)
   route("api/auth/register", "routes/api.auth.register.ts"),
   route("api/auth/login", "routes/api.auth.login.ts"),

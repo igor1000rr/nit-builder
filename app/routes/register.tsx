@@ -19,6 +19,7 @@ export default function Register() {
   const [error, setError] = useState<string | null>(null);
   const [tunnelToken, setTunnelToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [tokenAcknowledged, setTokenAcknowledged] = useState(false);
 
   // If already logged in (and not on the post-registration token screen),
   // send to home — they shouldn't see the form
@@ -232,12 +233,33 @@ export default function Register() {
                 </ol>
               </div>
 
-              <a
-                href="/"
-                className="block w-full text-center px-6 py-3 bg-gradient-to-r from-blue-500 to-violet-500 rounded-xl font-semibold hover:scale-[1.01] transition shadow-lg shadow-blue-500/30"
-              >
-                На главную →
-              </a>
+              {/* Continue button — disabled until user has copied token at least once */}
+              {copied || tokenAcknowledged ? (
+                <a
+                  href="/"
+                  className="block w-full text-center px-6 py-3 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-xl font-semibold hover:scale-[1.01] transition shadow-lg shadow-emerald-500/30"
+                >
+                  ✓ Я сохранил токен — на главную →
+                </a>
+              ) : (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    disabled
+                    className="block w-full text-center px-6 py-3 bg-slate-800 rounded-xl font-semibold text-slate-500 cursor-not-allowed"
+                    title="Сначала скопируй токен"
+                  >
+                    Сначала скопируй токен ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTokenAcknowledged(true)}
+                    className="block w-full text-center px-6 py-2 text-xs text-slate-500 hover:text-slate-300 transition"
+                  >
+                    Я уже сохранил его, пропустить →
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>

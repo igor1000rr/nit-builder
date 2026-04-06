@@ -11,7 +11,7 @@
  *   DELETE /api/sites/:id        → delete a site
  */
 
-import type { HistoryEntry } from "./historyStore";
+import { loadHistory, type HistoryEntry } from "./historyStore";
 
 /** Site summary returned by GET /api/sites (no HTML) */
 export type RemoteSiteSummary = {
@@ -97,7 +97,6 @@ export async function migrateLocalHistoryIfNeeded(): Promise<number> {
   if (typeof window === "undefined") return 0;
   if (localStorage.getItem(MIGRATION_FLAG_KEY)) return 0;
 
-  const { loadHistory } = await import("./historyStore");
   const local = loadHistory();
   if (local.length === 0) {
     localStorage.setItem(MIGRATION_FLAG_KEY, "1");

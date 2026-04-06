@@ -693,6 +693,47 @@ export default function Home() {
       <HistoryPanel isOpen={historyOpen} onClose={() => setHistoryOpen(false)} onOpen={openFromHistory} />
       <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
+      {/* Compact top bar — keeps brand + auth visible while editing */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-900 bg-slate-950 shrink-0">
+        <div className="flex items-center gap-3">
+          <a href="/" className="font-bold text-sm bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
+            NIT Builder
+          </a>
+          {auth.status === "authenticated" && socket.tunnelStatus !== "unknown" && (
+            <div
+              className={`hidden md:flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] ${
+                socket.tunnelStatus === "online"
+                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                  : "bg-slate-900 text-slate-500 border border-slate-800"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  socket.tunnelStatus === "online" ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
+                }`}
+              />
+              <span>
+                {socket.tunnelStatus === "online" ? `туннель (${socket.activeTunnels})` : "офлайн"}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {auth.status === "authenticated" && (
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              className="hidden sm:flex px-3 py-1.5 text-xs text-slate-400 hover:text-white transition rounded-full hover:bg-slate-900 items-center gap-1.5"
+              title="Мои сайты (⌘H)"
+            >
+              <span>📚</span>
+              <span className="hidden md:inline">Мои сайты</span>
+            </button>
+          )}
+          <AuthBadge auth={auth} onOpenSettings={() => setSettingsOpen(true)} />
+        </div>
+      </div>
+
       <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_380px] overflow-hidden">
         <LivePreview
           html={streamingHtml || html}

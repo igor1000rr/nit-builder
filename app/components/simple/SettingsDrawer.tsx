@@ -8,6 +8,16 @@ type ProviderInfo = {
   latencyMs?: number;
 };
 
+type AuthState =
+  | { authenticated: false }
+  | {
+      authenticated: true;
+      userId: string;
+      email: string;
+      tunnel: { status: "online" | "offline"; activeTunnels: number };
+      tunnelTokenCreatedAt: string | null;
+    };
+
 type Props = {
   isOpen: boolean;
   onClose: () => void;
@@ -38,6 +48,13 @@ const SHORTCUTS = [
 export function SettingsDrawer({ isOpen, onClose, selectedProvider, onSelectProvider }: Props) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [showRegenerate, setShowRegenerate] = useState(false);
+  const [regeneratePassword, setRegeneratePassword] = useState("");
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -49,7 +66,61 @@ export function SettingsDrawer({ isOpen, onClose, selectedProvider, onSelectProv
       })
       .catch(() => setProviders([]))
       .finally(() => setLoading(false));
+
+    // Fetch auth state in parallel
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: AuthState) => setAuth(data))
+      .catch(() => setAuth({ authenticated: false }));
   }, [isOpen]);
+
+  // Reset regenerate flow when drawer closes
+  useEffect(() => {
+    if (!isOpen) {
+      setShowRegenerate(false);
+      setRegeneratePassword("");
+      setRegenerateError(null);
+      setNewToken(null);
+      setCopied(false);
+    }
+  }, [isOpen]);
+
+  async function handleRegenerate() {
+    setRegenerating(true);
+    setRegenerateError(null);
+    try {
+      const res = await fetch("/api/auth/regenerate-tunnel-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: regeneratePassword }),
+      });
+      const data = (await res.json()) as { tunnelToken?: string; error?: string };
+      if (!res.ok) {
+        setRegenerateError(data.error ?? "Не удалось сгенерировать токен");
+        setRegenerating(false);
+        return;
+      }
+      setNewToken(data.tunnelToken ?? null);
+      setRegeneratePassword("");
+    } catch {
+      setRegenerateError("Ошибка сети");
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  function copyToken() {
+    if (!newToken) return;
+    navigator.clipboard.writeText(newToken).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/";
+  }
 
   if (!isOpen) return null;
 
@@ -75,6 +146,155 @@ export function SettingsDrawer({ isOpen, onClose, selectedProvider, onSelectProv
         </div>
 
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+          {/* Account */}
+          {auth?.authenticated ? (
+            <div>
+              <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">
+                Аккаунт
+              </h3>
+              <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-white">{auth.email}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      Туннель:{" "}
+                      <span
+                        className={
+                          auth.tunnel.status === "online"
+                            ? "text-emerald-400"
+                            : "text-slate-400"
+                        }
+                      >
+                        {auth.tunnel.status === "online"
+                          ? `● онлайн (${auth.tunnel.activeTunnels})`
+                          : "○ офлайн"}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="text-xs text-slate-400 hover:text-white transition px-3 py-1.5 rounded-lg hover:bg-slate-800"
+                  >
+                    Выйти
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : auth?.authenticated === false ? (
+            <div>
+              <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">
+                Аккаунт
+              </h3>
+              <div className="flex gap-2">
+                <a
+                  href="/login"
+                  className="flex-1 text-center px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl hover:border-slate-700 transition text-sm"
+                >
+                  Войти
+                </a>
+                <a
+                  href="/register"
+                  className="flex-1 text-center px-4 py-2.5 bg-gradient-to-r from-blue-500 to-violet-500 rounded-xl hover:scale-[1.01] transition text-sm font-semibold"
+                >
+                  Регистрация
+                </a>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Tunnel Token (only when authenticated) */}
+          {auth?.authenticated && (
+            <div>
+              <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">
+                Tunnel Token
+              </h3>
+              {newToken ? (
+                <div className="space-y-3">
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-200">
+                    ⚠️ Токен показан один раз. Скопируй его сейчас.
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      readOnly
+                      value={newToken}
+                      className="w-full px-3 py-2.5 pr-24 bg-slate-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-300"
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={copyToken}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-blue-500 hover:bg-blue-400 rounded text-[10px] font-semibold transition"
+                    >
+                      {copied ? "✓" : "Копировать"}
+                    </button>
+                  </div>
+                </div>
+              ) : showRegenerate ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-400">
+                    Для безопасности введи свой пароль. Старый токен будет отозван,
+                    все активные туннели отключатся.
+                  </p>
+                  <input
+                    type="password"
+                    value={regeneratePassword}
+                    onChange={(e) => setRegeneratePassword(e.target.value)}
+                    placeholder="Текущий пароль"
+                    autoComplete="current-password"
+                    className="w-full px-3 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm focus:border-blue-500 focus:outline-none transition"
+                  />
+                  {regenerateError && (
+                    <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-300">
+                      {regenerateError}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRegenerate(false);
+                        setRegeneratePassword("");
+                        setRegenerateError(null);
+                      }}
+                      className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs hover:border-slate-700 transition"
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRegenerate}
+                      disabled={regenerating || regeneratePassword.length === 0}
+                      className="flex-1 px-3 py-2 bg-gradient-to-r from-red-500 to-orange-500 rounded-lg text-xs font-semibold hover:scale-[1.01] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {regenerating ? "..." : "Перегенерировать"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                  <p className="text-xs text-slate-400 mb-3">
+                    Токен можно посмотреть только при первой регистрации. Если потерял —
+                    перегенерируй (все активные туннели отключатся).
+                  </p>
+                  {auth.tunnelTokenCreatedAt && (
+                    <p className="text-[10px] text-slate-500 mb-3">
+                      Создан: {new Date(auth.tunnelTokenCreatedAt).toLocaleDateString("ru")}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowRegenerate(true)}
+                    className="text-xs text-red-400 hover:text-red-300 transition"
+                  >
+                    Перегенерировать токен →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Provider selection */}
           <div>
             <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">LLM провайдер</h3>
@@ -158,7 +378,7 @@ export function SettingsDrawer({ isOpen, onClose, selectedProvider, onSelectProv
           {/* About */}
           <div className="pt-4 border-t border-slate-800">
             <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>NIT Builder v1.2.0-beta</span>
+              <span>NIT Builder v2.0.0-alpha.0</span>
               <div className="flex gap-3">
                 <a href="https://github.com/igor1000rr/nit-builder" target="_blank" rel="noopener" className="hover:text-white transition">GitHub</a>
                 <a href="/about" className="hover:text-white transition">О проекте</a>

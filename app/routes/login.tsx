@@ -4,7 +4,7 @@ import { useAuth } from "~/lib/contexts/AuthContext";
 import { GridBg, Orbs, Chip, NitButton, Particles } from "~/components/nit";
 
 export const meta: MetaFunction = () => [
-  { title: "Login // NIT.BUILDER" },
+  { title: "Login // NITGEN" },
   { name: "robots", content: "noindex" },
 ];
 
@@ -67,7 +67,7 @@ export default function Login() {
           >
             <span className="absolute inset-[3px]" style={{ background: "var(--bg)" }} />
           </span>
-          <span className="nit-display text-lg text-[color:var(--ink)]">NIT.BUILDER</span>
+          <span className="nit-display text-lg text-[color:var(--ink)]">NITGEN</span>
         </a>
       </nav>
 
@@ -186,7 +186,7 @@ export default function Login() {
             </form>
 
             <p className="mt-8 text-[10px] text-[color:var(--muted-2)] tracking-[0.05em] leading-[1.6]">
-              Используя NIT.BUILDER, ты соглашаешься генерировать сайты через
+              Используя NITGEN, ты соглашаешься генерировать сайты через
               свой GPU и не эксплуатировать туннель для автоматических атак.
             </p>
           </div>

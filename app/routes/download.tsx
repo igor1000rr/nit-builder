@@ -6,11 +6,11 @@ import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
 import { GridBg, Orbs, Chip, NitButton, Particles } from "~/components/nit";
 
 export const meta: MetaFunction = () => [
-  { title: "Download tunnel CLI // NIT.BUILDER" },
+  { title: "Download tunnel CLI // NITGEN" },
   {
     name: "description",
     content:
-      "NIT Tunnel CLI — клиент который проксирует твою LM Studio к серверу NIT Builder через WebSocket.",
+      "NIT Tunnel CLI — клиент который проксирует твою LM Studio к серверу NITGEN через WebSocket.",
   },
 ];
 
@@ -54,7 +54,7 @@ export default function Download() {
           >
             <span className="absolute inset-[3px]" style={{ background: "var(--bg)" }} />
           </span>
-          <span className="nit-display text-lg text-[color:var(--ink)]">NIT.BUILDER</span>
+          <span className="nit-display text-lg text-[color:var(--ink)]">NITGEN</span>
         </a>
         <div className="flex gap-2 items-center">
           <a
@@ -84,7 +84,7 @@ export default function Download() {
             className="text-[15px] max-w-[560px] mx-auto leading-[1.7]"
             style={{ color: "var(--muted)" }}
           >
-            CLI-клиент проксирует твою локальную LM Studio к серверу NIT Builder
+            CLI-клиент проксирует твою локальную LM Studio к серверу NITGEN
             через WebSocket. Никакого облака, никаких лимитов, полная приватность.
           </p>
         </div>
@@ -270,7 +270,7 @@ npm run dev -- \\
         className="relative z-10 py-10 text-center text-[10px] tracking-[0.15em] uppercase"
         style={{ borderTop: "1px solid var(--line)", color: "var(--muted-2)" }}
       >
-        NIT.BUILDER · MIT · OPEN SOURCE ·{" "}
+        NITGEN · MIT · OPEN SOURCE ·{" "}
         <a
           href="https://github.com/igor1000rr/nit-builder"
           target="_blank"

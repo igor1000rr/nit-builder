@@ -22,21 +22,21 @@ export const links: LinksFunction = () => [
 ];
 
 export const meta = () => [
-  { title: "NIT Builder — AI конструктор сайтов для локальной модели" },
+  { title: "NITGEN — AI конструктор сайтов через локальную LLM" },
   {
     name: "description",
-    content: "Создавай сайты на своём компьютере через LM Studio. Бесплатно, приватно, без подписки. Open source.",
+    content: "Создавай сайты на своём GPU через LM Studio. Никакого облака, никаких подписок, только локальный inference. Open source.",
   },
-  { property: "og:title", content: "NIT Builder — Создай сайт за минуту" },
-  { property: "og:description", content: "AI-конструктор сайтов, работающий локально через LM Studio. Бесплатно, без облака, без подписки." },
+  { property: "og:title", content: "NITGEN — Создай сайт за минуту" },
+  { property: "og:description", content: "AI-конструктор сайтов работающий на твоём GPU через peer-to-peer туннель. Только локальные LLM, никакого облака." },
   { property: "og:type", content: "website" },
   { property: "og:image", content: "/og-image.svg" },
   { property: "og:image:width", content: "1200" },
   { property: "og:image:height", content: "630" },
   { property: "og:locale", content: "ru_RU" },
   { name: "twitter:card", content: "summary_large_image" },
-  { name: "twitter:title", content: "NIT Builder — Создай сайт за минуту" },
-  { name: "twitter:description", content: "AI-конструктор сайтов для локальной модели. Бесплатно, приватно, open source." },
+  { name: "twitter:title", content: "NITGEN — Создай сайт за минуту" },
+  { name: "twitter:description", content: "AI-конструктор сайтов для локальной LLM. Бесплатно, приватно, open source." },
   { name: "twitter:image", content: "/og-image.svg" },
 ];
 

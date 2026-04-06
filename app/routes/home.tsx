@@ -22,7 +22,7 @@ type ChatMessage = { role: "user" | "assistant"; text: string };
 
 export function meta() {
   return [
-    { title: "NIT Builder — Создай сайт на своём компьютере за минуту" },
+    { title: "NITGEN — Создай сайт на своём компьютере за минуту" },
     {
       name: "description",
       content: "AI-конструктор сайтов работающий локально через LM Studio. Бесплатно, приватно, без подписки.",
@@ -518,7 +518,7 @@ export default function Home() {
             >
               <span className="absolute inset-[3px]" style={{ background: "var(--bg)" }} />
             </span>
-            <span className="nit-display text-lg text-[color:var(--ink)]">NIT.BUILDER</span>
+            <span className="nit-display text-lg text-[color:var(--ink)]">NITGEN</span>
           </a>
 
           <div className="flex gap-2 items-center">
@@ -680,7 +680,7 @@ export default function Home() {
           style={{ borderTop: "1px solid var(--line)" }}
         >
           <div className="max-w-6xl mx-auto px-8 flex flex-wrap justify-center items-center gap-6">
-            <span>NIT.BUILDER · MIT · OPEN SOURCE</span>
+            <span>NITGEN · MIT · OPEN SOURCE</span>
             <span className="hidden md:inline">·</span>
             <span className="hidden md:inline">⌘H — HISTORY</span>
             <span className="hidden md:inline">⌘↵ — GENERATE</span>
@@ -730,7 +730,7 @@ export default function Home() {
               >
                 <span className="absolute inset-[2px]" style={{ background: "var(--bg)" }} />
               </span>
-              <span className="nit-display text-[13px]">NIT.BUILDER</span>
+              <span className="nit-display text-[13px]">NITGEN</span>
             </a>
 
             <span

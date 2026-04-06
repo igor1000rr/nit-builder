@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════
-   NIT BUILDER — DESIGN TOKENS v2
+   NITGEN — DESIGN TOKENS v2
    Brutalist / cyberpunk. ЯРКИЕ неоны, видимые орбы, живая динамика.
    ═══════════════════════════════════════════════════════════════ */
 
@@ -356,6 +356,11 @@ iframe.nit-preview::-webkit-scrollbar-thumb {
 @keyframes nit-tilt {
   0%, 100% { transform: rotateY(-8deg) rotateX(5deg); }
   50%      { transform: rotateY(8deg) rotateX(-5deg); }
+}
+
+@keyframes nit-cursor {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }
 
 @keyframes slide-in {

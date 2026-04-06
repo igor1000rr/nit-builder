@@ -15,14 +15,15 @@ import {
   ConicRays,
   Beams,
 } from "~/components/nit";
+import { TerminalCodeCard } from "~/components/nit/TerminalCodeCard";
 
 export function meta() {
   return [
-    { title: "NIT Builder // AI sites on your own GPU" },
+    { title: "NITGEN // AI sites on your own GPU" },
     {
       name: "description",
       content:
-        "AI-конструктор сайтов, работающий на твоём GPU через peer-to-peer туннель. Никакого облака, никакой подписки, открытый исходник.",
+        "AI-конструктор сайтов, работающий на твоём GPU через peer-to-peer туннель. Никакого облака, никаких подписок, только локальные LLM. Open source.",
     },
   ];
 }
@@ -63,7 +64,7 @@ export default function Landing() {
                 style={{ background: "var(--bg)" }}
               />
             </span>
-            <span className="nit-display text-lg text-[color:var(--ink)]">NIT.BUILDER</span>
+            <span className="nit-display text-lg text-[color:var(--ink)]">NITGEN</span>
           </a>
 
           <ul className="hidden md:flex gap-8 list-none text-[11px] tracking-[0.15em] uppercase">
@@ -151,9 +152,9 @@ export default function Landing() {
           </RevealOnScroll>
         </div>
 
-        {/* Tunnel card — заменяет NFT-карту из TonForge */}
+        {/* Animated terminal code card — заменяет старую TunnelCard */}
         <RevealOnScroll delay={150}>
-          <TunnelCard />
+          <TerminalCodeCard />
         </RevealOnScroll>
       </header>
 
@@ -261,8 +262,9 @@ export default function Landing() {
           </div>
           <RevealOnScroll>
             <p className="text-[12px] text-[color:var(--muted)] max-w-[320px] leading-[1.7]">
-              Минимум — 4ГБ VRAM. Оптимально — 8ГБ. Без GPU тоже работает через
-              облачные провайдеры (Groq, OpenRouter), но смысл теряется.
+              Минимум — 4ГБ VRAM. Оптимально — 8ГБ. Apple Silicon (M1/M2/M3/M4)
+              работает без выделенного GPU — модель грузится в unified memory.
+              Никаких облачных API. Только локальный inference.
             </p>
           </RevealOnScroll>
         </div>
@@ -361,12 +363,12 @@ export default function Landing() {
             <div className="nit-display text-[42px] leading-[0.9] mb-4">
               NIT
               <span style={{ color: "transparent", WebkitTextStroke: "1.5px var(--accent-glow)" }}>
-                .BUILDER
+                GEN
               </span>
             </div>
             <p className="text-[12px] text-[color:var(--muted)] leading-[1.7] max-w-[320px]">
               Peer-to-peer AI-конструктор сайтов. Open source. MIT license.
-              Built in Belarus, hosted on bare metal, runs on your GPU.
+              Built in Belarus, hosted on bare metal, runs on your local LLM.
             </p>
           </div>
           <FootCol
@@ -390,8 +392,8 @@ export default function Landing() {
           className="flex justify-between flex-wrap gap-4 pt-8 text-[10px] tracking-[0.1em] uppercase text-[color:var(--muted)]"
           style={{ borderTop: "1px solid var(--line)" }}
         >
-          <div>© 2026 · NIT.BUILDER · v2.0.0-alpha</div>
-          <div>Built with rage in Belarus · No cloud, no compromise</div>
+          <div>© 2026 · NITGEN.ORG · v2.0.0-alpha</div>
+          <div>Built with rage in Belarus · Local LLM only, no compromise</div>
         </div>
       </footer>
     </div>
@@ -414,159 +416,6 @@ function Stat({ n, l }: { n: string; l: string }) {
       <span className="text-[10px] tracking-[0.15em] uppercase text-[color:var(--muted)] mt-1 block">
         {l}
       </span>
-    </div>
-  );
-}
-
-function TunnelCard() {
-  return (
-    <div
-      className="relative flex justify-center items-center"
-      style={{ perspective: 1200 }}
-    >
-      <div
-        className="absolute w-[120%] h-[120%] pointer-events-none"
-        style={{
-          border: "1px dashed var(--line-strong)",
-          borderRadius: "50%",
-          animation: "nit-spin 30s linear infinite",
-        }}
-      >
-        <span
-          className="absolute -top-1 left-1/2 w-2 h-2 rounded-full"
-          style={{
-            background: "var(--magenta)",
-            boxShadow: "0 0 15px var(--magenta)",
-          }}
-        />
-      </div>
-      <div
-        className="relative w-[340px] h-[460px]"
-        style={{
-          transformStyle: "preserve-3d",
-          animation: "nit-tilt 8s ease-in-out infinite",
-        }}
-      >
-        <div
-          className="absolute inset-0 p-7 overflow-hidden"
-          style={{
-            background:
-              "linear-gradient(135deg, #0a0d18 0%, #0d1628 50%, #1a0d28 100%)",
-            border: "1px solid var(--line-strong)",
-            boxShadow:
-              "0 30px 80px rgba(0,212,255,.25), 0 0 0 1px rgba(92,233,255,.1), inset 0 1px 0 rgba(255,255,255,.05)",
-          }}
-        >
-          {/* corner glows */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background:
-                "radial-gradient(circle at 20% 10%, rgba(92,233,255,.25), transparent 40%), radial-gradient(circle at 80% 90%, rgba(255,46,147,.2), transparent 40%)",
-            }}
-          />
-          {/* diagonal hatch */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background:
-                "repeating-linear-gradient(45deg, transparent 0, transparent 40px, rgba(92,233,255,.03) 40px, rgba(92,233,255,.03) 41px)",
-            }}
-          />
-
-          <div className="relative z-10">
-            <div className="flex justify-between items-start mb-6">
-              <Chip color="acid">⏵ Tunnel · Live</Chip>
-              <span className="text-[10px] text-[color:var(--muted)] tracking-[0.1em]">
-                #4719
-              </span>
-            </div>
-
-            <div
-              className="h-[200px] mb-5 relative flex items-center justify-center overflow-hidden"
-              style={{
-                background:
-                  "radial-gradient(circle at 50% 50%, var(--accent) 0%, transparent 60%), linear-gradient(135deg, #001830, #2a0040)",
-              }}
-            >
-              <svg
-                viewBox="0 0 100 100"
-                fill="none"
-                style={{
-                  width: "80%",
-                  height: "80%",
-                  filter: "drop-shadow(0 0 20px var(--accent-glow))",
-                }}
-              >
-                <defs>
-                  <linearGradient id="tg1" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0" stopColor="#5ce9ff" />
-                    <stop offset="1" stopColor="#ff2e93" />
-                  </linearGradient>
-                </defs>
-                {/* Stylized "tunnel" — 3 nested hexagons */}
-                <path
-                  d="M50 8 L86 28 L86 72 L50 92 L14 72 L14 28 Z"
-                  stroke="url(#tg1)"
-                  strokeWidth="2"
-                  fill="rgba(92,233,255,.05)"
-                />
-                <path
-                  d="M50 22 L74 36 L74 64 L50 78 L26 64 L26 36 Z"
-                  stroke="url(#tg1)"
-                  strokeWidth="1.2"
-                  fill="none"
-                  opacity="0.7"
-                />
-                <circle cx="50" cy="50" r="10" fill="url(#tg1)" opacity="0.85" />
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="18"
-                  stroke="#d4ff00"
-                  strokeWidth="0.6"
-                  fill="none"
-                  opacity="0.5"
-                />
-                {/* "data flow" lines */}
-                <path
-                  d="M50 22 L50 78 M26 36 L74 64 M74 36 L26 64"
-                  stroke="url(#tg1)"
-                  strokeWidth="0.6"
-                  opacity="0.5"
-                />
-              </svg>
-            </div>
-
-            <div className="nit-display text-[22px] mb-1.5">
-              Your Mac · M1 Max
-            </div>
-            <div className="text-[11px] text-[color:var(--muted)] mb-5 tracking-[0.05em]">
-              Qwen2.5-Coder · 7B · Q4_K_M
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-[10px]">
-              <Meta k="Throughput" v="48 t/s" />
-              <Meta k="Latency" v="180ms" />
-              <Meta k="Runtime" v="LM Studio" />
-              <Meta k="Status" v="LIVE" />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Meta({ k, v }: { k: string; v: string }) {
-  return (
-    <div style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}>
-      <div className="text-[color:var(--muted)] tracking-[0.1em] uppercase mb-0.5">
-        {k}
-      </div>
-      <div className="font-bold" style={{ color: "var(--accent-glow)" }}>
-        {v}
-      </div>
     </div>
   );
 }
@@ -750,10 +599,10 @@ function ArchDiagram() {
 }
 
 const HARDWARE: Array<{ tier: string; vram: string; model: string; note: string; color: "accent" | "acid" | "magenta" | "violet" }> = [
-  { tier: "Minimum", vram: "4 GB", model: "Coder-3B Q4", note: "Медленно но работает", color: "magenta" },
+  { tier: "Minimum", vram: "4 GB", model: "Coder-3B Q4", note: "Бюджетные карты, медленно но работает", color: "magenta" },
   { tier: "Recommended", vram: "8 GB", model: "Coder-7B Q4", note: "Sweet spot · отличное качество", color: "acid" },
-  { tier: "Pro", vram: "12+ GB", model: "Coder-14B Q4", note: "Максимум качество", color: "accent" },
-  { tier: "No GPU", vram: "Cloud", model: "Groq · OR", note: "Бесплатные лимиты, нужен интернет", color: "violet" },
+  { tier: "Pro", vram: "12+ GB", model: "Coder-14B Q4", note: "Максимум качество, быстро", color: "accent" },
+  { tier: "Apple Silicon", vram: "M1-M4", model: "MLX · Coder-7B", note: "Unified memory, без выделенного GPU", color: "violet" },
 ];
 
 function HardwareCell({ tier, vram, model, note, color }: typeof HARDWARE[0]) {

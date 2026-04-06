@@ -4,7 +4,7 @@ import { useAuth } from "~/lib/contexts/AuthContext";
 import { GridBg, Orbs, Chip, NitButton, Particles } from "~/components/nit";
 
 export const meta: MetaFunction = () => [
-  { title: "Register // NIT.BUILDER" },
+  { title: "Register // NITGEN" },
   { name: "robots", content: "noindex" },
 ];
 
@@ -105,7 +105,7 @@ export default function Register() {
           >
             <span className="absolute inset-[3px]" style={{ background: "var(--bg)" }} />
           </span>
-          <span className="nit-display text-lg text-[color:var(--ink)]">NIT.BUILDER</span>
+          <span className="nit-display text-lg text-[color:var(--ink)]">NITGEN</span>
         </a>
       </nav>
 

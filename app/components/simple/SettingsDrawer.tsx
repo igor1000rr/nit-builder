@@ -423,7 +423,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
               className="flex items-center justify-between text-[10px] tracking-[0.1em] uppercase"
               style={{ color: "var(--muted-2)" }}
             >
-              <span>NIT.BUILDER · v2.0.0-alpha</span>
+              <span>NITGEN · v2.0.0-alpha</span>
               <div className="flex gap-4">
                 <a
                   href="https://github.com/igor1000rr/nit-builder"

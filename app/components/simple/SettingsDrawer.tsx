@@ -1,14 +1,5 @@
 import { useEffect, useState } from "react";
-
-type AuthState =
-  | { authenticated: false }
-  | {
-      authenticated: true;
-      userId: string;
-      email: string;
-      tunnel: { status: "online" | "offline"; activeTunnels: number };
-      tunnelTokenCreatedAt: string | null;
-    };
+import { useAuth, useAuthRefetch } from "~/lib/contexts/AuthContext";
 
 type Props = {
   isOpen: boolean;
@@ -24,23 +15,14 @@ const SHORTCUTS = [
 ];
 
 export function SettingsDrawer({ isOpen, onClose }: Props) {
-  const [auth, setAuth] = useState<AuthState | null>(null);
+  const auth = useAuth();
+  const refetchAuth = useAuthRefetch();
   const [showRegenerate, setShowRegenerate] = useState(false);
   const [regeneratePassword, setRegeneratePassword] = useState("");
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    // Fetch auth state
-    fetch("/api/auth/me", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data: AuthState) => setAuth(data))
-      .catch(() => setAuth({ authenticated: false }));
-  }, [isOpen]);
 
   // Reset regenerate flow when drawer closes
   useEffect(() => {
@@ -88,7 +70,8 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    window.location.href = "/";
+    await refetchAuth();
+    onClose();
   }
 
   if (!isOpen) return null;
@@ -116,7 +99,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
 
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
           {/* Account */}
-          {auth?.authenticated ? (
+          {auth.status === "authenticated" ? (
             <div>
               <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">
                 Аккаунт
@@ -150,7 +133,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
                 </div>
               </div>
             </div>
-          ) : auth?.authenticated === false ? (
+          ) : auth.status === "unauthenticated" ? (
             <div>
               <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">
                 Аккаунт
@@ -173,7 +156,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
           ) : null}
 
           {/* Tunnel Token (only when authenticated) */}
-          {auth?.authenticated && (
+          {auth.status === "authenticated" && (
             <div>
               <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">
                 Tunnel Token

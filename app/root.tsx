@@ -8,6 +8,7 @@ import {
   type LinksFunction,
 } from "react-router";
 import type { Route } from "./+types/root";
+import { AuthProvider } from "~/lib/contexts/AuthContext";
 import "./styles/app.css";
 
 export const links: LinksFunction = () => [
@@ -59,7 +60,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  return (
+    <AuthProvider>
+      <Outlet />
+    </AuthProvider>
+  );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

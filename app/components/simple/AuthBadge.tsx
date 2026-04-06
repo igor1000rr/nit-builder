@@ -8,7 +8,8 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import type { AuthState } from "~/lib/hooks/useAuth";
+import type { AuthState } from "~/lib/contexts/AuthContext";
+import { useAuthRefetch } from "~/lib/contexts/AuthContext";
 
 type Props = {
   auth: AuthState;
@@ -19,6 +20,7 @@ export function AuthBadge({ auth, onOpenSettings }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const refetchAuth = useAuthRefetch();
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -39,10 +41,15 @@ export function AuthBadge({ auth, onOpenSettings }: Props) {
         method: "POST",
         credentials: "include",
       });
+      await refetchAuth();
+      setMenuOpen(false);
     } catch {
-      // Even if logout fails on server, force reload
+      // Even if logout fails, still try to refetch (server may have
+      // cleared the cookie)
+      await refetchAuth();
+    } finally {
+      setLoggingOut(false);
     }
-    window.location.href = "/";
   }
 
   if (auth.status === "loading") {

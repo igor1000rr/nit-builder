@@ -25,14 +25,17 @@
     "format": "prettier --write 'app/**/*.{ts,tsx,css}'",
     "tunnel:dev": "npm run dev --workspace tunnel",
     "tunnel:build": "npm run build --workspace tunnel",
-    "shared:build": "npm run build --workspace shared"
+    "shared:build": "npm run build --workspace shared",
+    "migrate:appwrite": "tsx scripts/appwrite-migrate.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.102",
     "@react-router/node": "^7.0.0",
     "@react-router/serve": "^7.0.0",
     "ai": "^5.0.167",
+    "argon2": "^0.44.0",
     "isbot": "^5.1.0",
+    "node-appwrite": "^14.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^7.0.0",

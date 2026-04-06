@@ -18,11 +18,14 @@
 import { createRequestListener } from "@react-router/node";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
-import * as build from "./build/server/index.js";
 import {
   handleTunnelConnection,
   handleControlConnection,
 } from "./app/lib/server/wsHandlers.server.ts";
+
+// Dynamic import for build — avoids typecheck needing prior build
+// @ts-expect-error — build output exists at runtime after `npm run build`
+const build = await import("./build/server/index.js");
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";

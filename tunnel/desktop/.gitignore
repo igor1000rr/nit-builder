@@ -1,0 +1,12 @@
+# Rust build artifacts
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/gen/
+
+# UI build
+ui/dist/
+ui/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

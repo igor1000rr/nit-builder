@@ -3,6 +3,254 @@
 All notable changes to NIT Builder are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-alpha.0] — 2026-04-06 (branch: `v2-tunnel`, work in progress)
+
+Major architectural shift from single-instance cloud tool to peer-to-peer
+distributed compute network. Users bring their own GPU via a tunnel client,
+VPS only routes WebSocket messages between browsers and user tunnels.
+
+### Added (Phase C — Tauri desktop client scaffold)
+
+**C.1 — Scaffold (commits 2d1d939, 41c8fe4):**
+
+Added full Tauri 2 + Rust + React scaffold at `tunnel/desktop/`. This
+provides an installable GUI client (alternative to the Node.js CLI at
+`tunnel/`) that end users can download as `.dmg`/`.exe`/`.AppImage`.
+
+**⚠️ IMPORTANT:** All Rust code in Phase C was written without running
+`cargo check` — the build container has Rust 1.75 via apt but Tauri 2
+transitive deps require Rust 1.85+ (`edition2024` cargo feature), and
+`sh.rustup.rs` is not in the container's domain allowlist. Expect 1-3
+small fixes on first `cargo tauri dev` run. Known issues documented in
+`tunnel/desktop/README.md`.
+
+Rust backend (`tunnel/desktop/src-tauri/`):
+- `Cargo.toml` — tauri 2.0, tokio 1.40 full, tokio-tungstenite 0.24
+  (rustls-tls-webpki-roots), reqwest 0.12 (rustls + stream), serde, anyhow,
+  uuid, log, env_logger. Release profile: panic abort, lto, opt-level "s".
+- `tauri.conf.json` — 480x640 window, CSP allowing `wss://nit.vibecoding.by`,
+  tray icon, updater endpoint, autostart plugin, bundle targets for all
+  4 platforms (dmg/nsis/appimage/deb).
+- `capabilities/default.json` — window/event/shell/store/updater/autostart
+  permissions.
+- `src/protocol.rs` (138 lines) — Rust mirror of `@nit/shared`: TunnelToServer,
+  ServerToTunnel, TunnelCapabilities, Runtime, GpuVendor, ServerErrorCode.
+  Uses `#[serde(tag = "type", rename_all = "snake_case")]` for wire compat
+  with TypeScript side. Fields use `#[serde(rename)]` for camelCase.
+- `src/lm_studio.rs` (244 lines) — LmStudioProxy:
+  - `probe()` — 3s timeout GET /v1/models, returns first model ID
+  - `stream_chat()` — POST /v1/chat/completions with stream=true, SSE
+    parsing via `\n\n` separators, tokio::select for concurrent
+    cancellation via CancellationToken
+  - StreamEvent enum: Start / Text(String) / Done{full_text, duration_ms} /
+    Error(String)
+- `src/tunnel.rs` (~440 lines) — Core runtime:
+  - TunnelConfig, TunnelStatus, TunnelUiEvent types with serde
+  - `spawn(config)` returns TunnelHandle{stop, events}
+  - `run_loop()` with exponential backoff 5s→60s, auth errors stop retry
+  - `connect_and_serve()` refactored (C.1 fix commit 41c8fe4):
+    * outgoing_tx mpsc channel — all TunnelToServer messages flow through
+      single sink, avoiding ws_write borrow conflicts
+    * Per-Generate tokio::spawn task so main loop stays responsive for
+      heartbeat, new messages, stop cancellation during long LLM streams
+    * Shared Arc<LmStudioProxy> across all requests
+    * HashMap<requestId, CancellationToken> for abort propagation
+  - Main tokio::select loop branches: stop / heartbeat tick / outgoing_rx /
+    ws_read.next()
+- `src/lib.rs` — Tauri entry + 4 IPC commands:
+  - `start_tunnel(payload)` — validates, stops existing, spawns new runtime,
+    bridges events via `app.emit("tunnel-event", ...)`
+  - `stop_tunnel()` — cancels running tunnel via stored CancellationToken
+  - `is_tunnel_running()` — boolean status check
+  - `probe_lm_studio(url)` — tests LM Studio reachability from login screen
+  - AppState with `Mutex<Option<CancellationToken>>` (simplified from
+    holding full TunnelHandle after refactor)
+  - Plugins: shell, store, updater, autostart
+  - `--autostart` CLI flag to skip window show (launch agent mode)
+- `src/main.rs` — thin binary wrapper with `windows_subsystem = "windows"`
+  in release mode.
+
+React frontend (`tunnel/desktop/ui/`):
+- React 19 + Vite 6 + Tauri API v2 + plugin-store
+- `src/types.ts` — TypeScript mirror of Rust TunnelStatus, TunnelUiEvent,
+  StartTunnelPayload, LmStudioProbeResult (discriminated unions tagged
+  by `type`/`status` to match Rust serde)
+- `src/App.tsx` (282 lines):
+  - Two-screen flow: login | dashboard
+  - PersistedConfig via @tauri-apps/plugin-store (config.bin)
+  - Auto-start tunnel on mount if saved token exists
+  - Subscribes to 'tunnel-event' via `listen<TunnelUiEvent>`
+  - Tracks active requests in Map<requestId, {tokens, startedAt}>
+  - Log buffer capped at 200 entries
+- `src/components/LoginForm.tsx` — token password field, LM Studio URL with
+  "Test" button (calls probe_lm_studio IPC), advanced details for server
+  URL override, Russian labels
+- `src/components/StatusDashboard.tsx` — pulsing status dot (green/yellow/
+  red/grey), info strip with server + LM Studio URLs, active requests list,
+  log panel slot, Stop / Forget token buttons
+- `src/components/LogPanel.tsx` — timestamped log entries in monospace font
+- `index.html` — dark theme CSS custom properties
+
+Icons (`tunnel/desktop/src-tauri/icons/`):
+- 32x32.png, 128x128.png, 128x128@2x.png, icon.png — placeholder blue
+  gradient generated via Python PIL. Replace with real branding before
+  production release.
+- icon.icns (macOS) — generated via png2icns with all 4 sizes
+- icon.ico (Windows) — generated via ImageMagick with auto-resize to
+  256/128/64/48/32/16
+
+CI (`.github/workflows/tunnel-release.yml`):
+- Triggered by `tunnel-v*` tag push or manual workflow_dispatch
+- Matrix: macos-latest (aarch64 + x86_64), ubuntu-22.04, windows-latest
+- Uses `tauri-apps/tauri-action@v0` with signing env vars from secrets
+- Creates GitHub draft prerelease with all bundle artifacts
+- Code signing optional — secrets missing = unsigned builds still produced
+
+Root workspaces:
+- package.json workspaces array updated to include `tunnel/desktop/ui`
+
+Known issues to address on first build:
+- Rust version mismatch: Cargo.toml says `rust-version = "1.75"` (was changed
+  to accommodate apt rustc in the dev container) but actual Tauri 2 deps
+  need 1.77+. Igor should change back to 1.77 on his machine.
+- Icons are placeholder blue gradients
+- No code signing configured
+- `core:window:allow-show` permission name may have changed in stable
+  Tauri 2 — check docs
+
+### Added (Phase B — Appwrite auth + Мои сайты)
+
+**B.1 — SDK wrapper + tunnel tokens (commit 8159e60):**
+- `app/lib/server/tunnelTokens.server.ts` — two-field scheme: HMAC-SHA256 lookup + argon2id hash
+- `app/lib/server/appwrite.server.ts` — typed wrapper for node-appwrite with NitUser/NitSite/NitGeneration types
+- `scripts/appwrite-migrate.ts` — idempotent migration creating database, collections, attributes, indexes
+- Env: `APPWRITE_API_KEY`, `APPWRITE_PROJECT_ID` (default 69ab07130011752aae12), `NIT_TOKEN_LOOKUP_SECRET` (openssl rand -hex 32)
+- 22 new tunnelTokens tests
+
+**B.2 — Auth endpoints (commit 1d93712):**
+- `POST /api/auth/register` — Zod validated, creates Appwrite user + nit_users doc + tunnel token, sets HttpOnly cookie
+- `POST /api/auth/login` — rate limited (10/min/IP), sets session cookie
+- `POST /api/auth/logout` — clears cookie, invalidates Appwrite session
+- `GET /api/auth/me` — current user info + live tunnel status
+- `POST /api/auth/regenerate-tunnel-token` — password re-verification, revokes all active tunnels
+- `app/lib/server/sessionCookie.server.ts` — HttpOnly + SameSite=Lax cookie helpers
+- `app/lib/server/requireAuth.server.ts` — middleware for protected routes
+
+**B.3 — wsHandlers Appwrite integration (commit a5fd57b):**
+- Replaced dev-stub auth with `findUserByTunnelToken` (HMAC lookup + argon2 verify)
+- Browser WebSocket auto-auth via Cookie header on upgrade (no handshake message)
+- Dev fallback preserved when `APPWRITE_API_KEY` unset (for CI and local E2E)
+- Race condition protection in async auth IIFE
+
+**B.4 — Login/register UI + settings (commit a8c3b4a):**
+- `app/routes/login.tsx` — Russian form, POST /api/auth/login, redirect on success
+- `app/routes/register.tsx` — two-step flow, tunnel token reveal screen with copy-to-clipboard
+- `SettingsDrawer.tsx` — Account section (email, logout, tunnel status), Tunnel Token section with password-gated regenerate flow
+
+**B.5 — home.tsx WebSocket integration (commit a617ed7):**
+- `app/lib/hooks/useAuth.ts` — fetch /api/auth/me once on mount
+- `app/lib/hooks/useControlSocket.ts` — WebSocket manager with exponential backoff reconnect (2s → 30s), heartbeat every 30s, typed events
+- Dual-path createSite/polishSite: WebSocket if authed+tunnel online, HTTP fallback otherwise
+- Tunnel status indicator in nav (green pulsing dot / grey offline)
+- Amber 'Туннель не подключён' banner with Settings CTA
+- Blue sign-up CTA for anonymous users
+- WS-aware cancelGeneration sends abort messages
+
+**B.6 — Мои сайты → Appwrite (this commit):**
+- `app/routes/api.sites.ts` — GET list, POST save (Zod validated)
+- `app/routes/api.sites.$id.ts` — GET one (with HTML), DELETE (ownership check)
+- `app/lib/stores/remoteHistoryStore.ts` — Appwrite-backed client + migration helper
+- `HistoryPanel.tsx` — dual-source: localStorage for guests, Appwrite for authed users
+- Auto-migration from localStorage → Appwrite on first authed open (one-shot, idempotent)
+- Fire-and-forget `saveRemoteSite` in both WS and HTTP paths
+- Footer adapts: 'только в браузере · зарегистрируйся →' vs 'синхронизировано с аккаунтом'
+
+### Added (Phase A — tunnel protocol MVP)
+
+- **Monorepo structure** with npm workspaces: `shared/` (types) and `tunnel/` (Node CLI client)
+- **`shared/src/protocol.ts`** — WebSocket protocol types (TunnelToServer, ServerToTunnel, BrowserToServer, ServerToBrowser) with PROTOCOL_VERSION constant
+- **`app/lib/services/tunnelRegistry.server.ts`** — in-memory state manager: multi-tunnel per user, multi-tab browser sessions, request routing, abort propagation, status broadcasting, metric counters (340 lines)
+- **`app/lib/server/wsHandlers.server.ts`** — WebSocket handlers for `/api/tunnel` and `/api/control` with protocol version check, auth, heartbeat, response forwarding
+- **`server.ts`** — custom HTTP+WS server via tsx, replaces `react-router-serve`, single port, graceful shutdown
+- **`tunnel/`** Node.js CLI client: LM Studio streaming proxy, WebSocket reconnect with exponential backoff (5s→60s), heartbeat, abort propagation, argument parsing
+- **`docs/architecture/v2-tunnel.md`** — ADR with architecture diagram, protocol spec, phase breakdown (400 lines)
+- **19 tests** in `tests/tunnelRegistry.test.ts`
+
+### Added (Phase B — Appwrite auth integration)
+
+**B.1 — SDK wrapper + tunnel tokens:**
+- `app/lib/server/tunnelTokens.server.ts` — two-field scheme: HMAC-SHA256 lookup (deterministic, DB index) + argon2id hash (random salt, verification). Fixes design flaw where argon2 salt prevents lookup
+- `app/lib/server/appwrite.server.ts` — SDK wrapper, types (NitUser, NitSite, NitGeneration), session operations
+- `scripts/appwrite-migrate.ts` — standalone idempotent migration script (creates DB, 3 collections, indexes)
+- 22 tests in `tests/tunnelTokens.test.ts`
+- New env vars: `APPWRITE_API_KEY`, `NIT_TOKEN_LOOKUP_SECRET`
+
+**B.2 — Auth endpoints:**
+- `POST /api/auth/register` — Zod validation, creates Appwrite account + nit_users doc, shows tunnel token once
+- `POST /api/auth/login` — rate limited (10/min/IP), sets HttpOnly session cookie
+- `POST /api/auth/logout` — invalidates session + clears cookie
+- `GET /api/auth/me` — returns auth state + tunnel status
+- `POST /api/auth/regenerate-tunnel-token` — requires password re-entry for safety
+- `sessionCookie.server.ts`, `requireAuth.server.ts` helpers
+- HttpOnly, SameSite=Lax, Secure in prod, Max-Age 30 days
+
+**B.3 — Real auth in wsHandlers:**
+- Replaced dev-stub `validateTunnelToken` with `findUserByTunnelToken` (HMAC lookup + argon2 verify)
+- Browser auto-auth via Cookie header during WebSocket upgrade (no handshake message needed)
+- Dev fallback preserved when `APPWRITE_API_KEY` not set (for local testing)
+
+**B.4 — Login/register UI:**
+- `app/routes/login.tsx` — email+password form
+- `app/routes/register.tsx` — two-step flow: form → token display screen with copy button
+- Updated `SettingsDrawer.tsx` with Account section (email, tunnel status, logout) and Tunnel Token section (regenerate flow with password re-entry)
+
+**B.5 — home.tsx WebSocket integration:**
+- `app/lib/hooks/useAuth.ts` — fetches `/api/auth/me` on mount
+- `app/lib/hooks/useControlSocket.ts` — WebSocket manager with auto-reconnect (2s→30s), heartbeat, typed events
+- Dual-path `createSite` and `polishSite`: WebSocket if authed+tunnel online, HTTP fallback otherwise
+- Tunnel status indicator in nav (green pulsing dot when online)
+- Amber banner when tunnel offline, blue CTA for anonymous users
+- `cancelGeneration` sends WS abort in addition to AbortController
+
+**B.6 — Мои сайты → Appwrite:**
+- `GET /api/sites` / `POST /api/sites` — list and save (Zod validated)
+- `GET /api/sites/:id` / `DELETE /api/sites/:id` — individual site with ownership check
+- `remoteHistoryStore.ts` — Appwrite clients + `migrateLocalHistoryIfNeeded()` helper
+- `HistoryPanel.tsx` rewritten with dual-source: localStorage for guests, Appwrite for authenticated
+- Auto-migration from localStorage on first authenticated history view
+- Fire-and-forget remote save in both WS and HTTP paths
+
+### Changed
+
+- `package.json` version bump: `1.3.1-beta` → `2.0.0-alpha.0`
+- npm workspaces: root is now a monorepo with `shared` and `tunnel` workspaces
+- `tsconfig.json`: `allowImportingTsExtensions: true` for server.ts direct TS imports
+- Dependencies added: `node-appwrite@14.2.0`, `argon2@0.44.0`, `tsx@^4.19.0`, `ws@^8.18.0`
+
+### Deployment notes
+
+Phase B requires manual Appwrite setup before deploy:
+```bash
+export APPWRITE_API_KEY=your-server-key
+npm run migrate:appwrite     # creates DB schema (idempotent)
+export NIT_TOKEN_LOOKUP_SECRET=$(openssl rand -hex 32)
+```
+
+### Known limitations
+
+- Tauri desktop client not yet implemented (Phase C pending)
+- Embedded llama.cpp runtime not yet implemented (Phase D pending)
+- Auth endpoints lack unit tests (need Appwrite mocks)
+- Container can't reach appwrite.vibecoding.by for live verification — code compiles and smoke-tested against mock LM Studio only
+
+### Roadmap
+
+- Phase C — Tauri GUI tunnel client (.dmg/.exe/.AppImage)
+- Phase D — Embedded llama.cpp runtime in client
+- v2.0.0 stable — production deploy on VPS 185.218.0.7
+
+---
+
 ## [1.3.1-beta] — 2026-04-06
 
 ### Fixed

@@ -10,6 +10,8 @@ import {
   Chip,
   StatusDot,
   Marquee,
+  Particles,
+  ScanLine,
 } from "~/components/nit";
 
 export function meta() {
@@ -31,6 +33,8 @@ export default function Landing() {
     <div className="relative min-h-screen overflow-x-hidden text-[color:var(--ink)] nit-grain">
       <GridBg />
       <Orbs />
+      <Particles count={35} />
+      <ScanLine />
 
       {/* ─── NAV ─────────────────────────────────────────────── */}
       <nav

@@ -23,7 +23,12 @@ export function Orbs({ variant = "full" }: { variant?: "full" | "lite" }) {
     <>
       <div className="nit-orb nit-orb-1" aria-hidden />
       <div className="nit-orb nit-orb-2" aria-hidden />
-      {variant === "full" && <div className="nit-orb nit-orb-3" aria-hidden />}
+      {variant === "full" && (
+        <>
+          <div className="nit-orb nit-orb-3" aria-hidden />
+          <div className="nit-orb nit-orb-4" aria-hidden />
+        </>
+      )}
     </>
   );
 }
@@ -228,34 +233,66 @@ export function GlitchHeading({
 }) {
   return (
     <h1
-      className={`nit-display text-[clamp(48px,8vw,128px)] leading-[0.85] tracking-[-0.04em] mb-8 ${className}`}
+      className={`nit-display text-[clamp(56px,9vw,144px)] leading-[0.85] tracking-[-0.04em] mb-8 ${className}`}
     >
       {lines.map((line, i) => {
         if (Array.isArray(line)) {
           return (
-            <span
-              key={i}
-              className="nit-glitch block"
-              data-text={line[0]}
-              style={{
-                fontSize: "inherit",
-                fontWeight: 900,
-                lineHeight: 0.85,
-                letterSpacing: "-0.04em",
-              }}
-            >
-              {line[0]}
+            <span key={i} className="block">
+              <span className="nit-glitch-text" data-text={line[0]}>
+                {line[0]}
+              </span>
             </span>
           );
         }
         return (
-          <span key={i} className="block text-[color:var(--ink)]">
+          <span key={i} className="block nit-gradient-text">
             {line}
           </span>
         );
       })}
     </h1>
   );
+}
+
+/* ─── Particles — летающие неоновые точки ────────────────────── */
+
+export function Particles({ count = 30 }: { count?: number }) {
+  // Деривативный набор частиц с разными цветами/задержками/позициями
+  const particles = Array.from({ length: count }, (_, i) => {
+    const colors = ["", "mag", "acid", "violet", "", ""];
+    const cls = colors[i % colors.length];
+    const left = (i * 37) % 100;
+    const duration = 8 + (i % 7) * 2;
+    const delay = (i * 0.5) % 8;
+    const drift = ((i * 17) % 80) - 40;
+    return { i, cls, left, duration, delay, drift };
+  });
+
+  return (
+    <div className="nit-particles" aria-hidden>
+      {particles.map((p) => (
+        <span
+          key={p.i}
+          className={`nit-particle ${p.cls}`}
+          style={
+            {
+              left: `${p.left}%`,
+              animationDuration: `${p.duration}s`,
+              animationDelay: `${p.delay}s`,
+              "--x-drift": `${p.drift}px`,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ─── ScanLine — горизонтальная неоновая полоса бегущая вниз ── */
+
+export function ScanLine() {
+  return <div className="nit-scan-line" aria-hidden />;
 }
 
 /* ─── Chip ───────────────────────────────────────────────────── */

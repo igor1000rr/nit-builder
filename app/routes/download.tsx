@@ -3,7 +3,7 @@ import type { MetaFunction } from "react-router";
 import { useAuth } from "~/lib/contexts/AuthContext";
 import { AuthBadge } from "~/components/simple/AuthBadge";
 import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
-import { GridBg, Orbs, Chip, NitButton } from "~/components/nit";
+import { GridBg, Orbs, Chip, NitButton, Particles, ScanLine } from "~/components/nit";
 
 export const meta: MetaFunction = () => [
   { title: "Download tunnel CLI // NIT.BUILDER" },
@@ -34,7 +34,9 @@ export default function Download() {
   return (
     <div className="relative min-h-screen text-[color:var(--ink)] nit-grain overflow-x-hidden">
       <GridBg />
-      <Orbs variant="lite" />
+      <Orbs />
+      <Particles count={25} />
+      <ScanLine />
       <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {/* Nav */}

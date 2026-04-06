@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════
-   NIT BUILDER — DESIGN TOKENS
-   Brutalist / cyberpunk palette. Single source of truth.
+   NIT BUILDER — DESIGN TOKENS v2
+   Brutalist / cyberpunk. ЯРКИЕ неоны, видимые орбы, живая динамика.
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
@@ -10,38 +10,40 @@
   --bg:        #05060a;
   --bg-2:      #0a0d18;
   --bg-elev:   #0d1424;
-  --bg-glass:  rgba(10, 13, 24, 0.6);
+  --bg-glass:  rgba(13, 20, 36, 0.7);
 
   /* ─── Ink ─── */
   --ink:       #e8ecff;
   --ink-dim:   #b8c0e0;
-  --muted:     #7a85b8;
-  --muted-2:   #525c85;
+  --muted:     #8b94c4;
+  --muted-2:   #5c6595;
 
-  /* ─── Accents ─── */
+  /* ─── Accents — БОЛЬШЕ НАСЫЩЕННОСТИ ─── */
   --accent:       #00d4ff;
   --accent-glow:  #5ce9ff;
+  --accent-deep:  #0098e0;
   --magenta:      #ff2e93;
   --magenta-glow: #ff5cad;
   --acid:         #d4ff00;
+  --acid-glow:    #e8ff66;
   --violet:       #9d4dff;
   --violet-glow:  #b87bff;
 
   /* ─── Lines & glows ─── */
-  --line:        rgba(92, 233, 255, 0.12);
-  --line-strong: rgba(92, 233, 255, 0.35);
-  --line-dim:    rgba(92, 233, 255, 0.06);
+  --line:        rgba(92, 233, 255, 0.18);
+  --line-strong: rgba(92, 233, 255, 0.45);
+  --line-dim:    rgba(92, 233, 255, 0.10);
 
-  --glow-cyan:    0 0 40px rgba(0, 212, 255, 0.4);
-  --glow-cyan-sm: 0 0 20px rgba(0, 212, 255, 0.25);
-  --glow-mag:     0 0 40px rgba(255, 46, 147, 0.4);
-  --glow-acid:    0 0 20px rgba(212, 255, 0, 0.5);
-  --glow-violet:  0 0 40px rgba(157, 77, 255, 0.4);
+  --glow-cyan:    0 0 60px rgba(0, 212, 255, 0.55);
+  --glow-cyan-sm: 0 0 25px rgba(0, 212, 255, 0.4);
+  --glow-mag:     0 0 60px rgba(255, 46, 147, 0.55);
+  --glow-mag-sm:  0 0 25px rgba(255, 46, 147, 0.4);
+  --glow-acid:    0 0 30px rgba(212, 255, 0, 0.6);
+  --glow-violet:  0 0 60px rgba(157, 77, 255, 0.55);
 
   /* ─── Type ─── */
   --display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
   --mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-
   --font-sans: var(--mono);
 }
 
@@ -53,7 +55,7 @@
   --color-nit-bg: #05060a;
   --color-nit-bg-2: #0a0d18;
   --color-nit-ink: #e8ecff;
-  --color-nit-muted: #7a85b8;
+  --color-nit-muted: #8b94c4;
   --color-nit-accent: #00d4ff;
   --color-nit-magenta: #ff2e93;
   --color-nit-acid: #d4ff00;
@@ -80,21 +82,16 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-::selection {
-  background: var(--magenta);
-  color: #000;
-}
+::selection { background: var(--magenta); color: #000; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb {
-  background: rgba(92, 233, 255, 0.15);
+  background: rgba(92, 233, 255, 0.25);
   border-radius: 0;
   border: 1px solid var(--line);
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(92, 233, 255, 0.3);
-}
+::-webkit-scrollbar-thumb:hover { background: rgba(92, 233, 255, 0.5); }
 
 iframe.nit-preview::-webkit-scrollbar { width: 8px; }
 iframe.nit-preview::-webkit-scrollbar-thumb {
@@ -103,40 +100,54 @@ iframe.nit-preview::-webkit-scrollbar-thumb {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   AMBIENT LAYERS
+   AMBIENT LAYERS — ВИДИМЫЕ И ЖИВЫЕ
    ═══════════════════════════════════════════════════════════════ */
 
+/* Grid bg — ярче, маска мягче */
 .nit-grid-bg {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    linear-gradient(rgba(92, 233, 255, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(92, 233, 255, 0.18) 1px, transparent 1px);
   background-size: 60px 60px;
-  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 80%);
-          mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 100% 80% at 50% 40%, #000 40%, transparent 95%);
+          mask-image: radial-gradient(ellipse 100% 80% at 50% 40%, #000 40%, transparent 95%);
 }
 
+/* Дополнительный мелкий grid поверх */
+.nit-grid-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(92, 233, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(92, 233, 255, 0.06) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+/* Grain — заметнее */
 .nit-grain::before {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 1000;
-  opacity: 0.08;
+  opacity: 0.12;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
+/* Scanlines — мягче */
 .nit-scanlines::after {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 999;
-  opacity: 0.05;
+  opacity: 0.08;
   background: repeating-linear-gradient(
     0deg,
     transparent 0,
@@ -146,38 +157,125 @@ iframe.nit-preview::-webkit-scrollbar-thumb {
   );
 }
 
+/* Scanning line — горизонтальная полоса бегущая сверху вниз */
+.nit-scan-line {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 2px;
+  pointer-events: none;
+  z-index: 998;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent-glow) 50%,
+    transparent 100%
+  );
+  box-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent);
+  animation: nit-scan 8s linear infinite;
+}
+
+@keyframes nit-scan {
+  0%   { top: -10px; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: 100vh; opacity: 0; }
+}
+
+/* ─── ORBS — ЯРКИЕ! ─── */
 .nit-orb {
   position: fixed;
   border-radius: 50%;
-  filter: blur(120px);
+  filter: blur(100px);
   pointer-events: none;
   z-index: 0;
 }
 .nit-orb-1 {
-  width: 600px; height: 600px;
-  background: var(--accent);
-  opacity: 0.30;
-  top: -100px; left: -200px;
-  animation: nit-float 18s ease-in-out infinite;
+  width: 700px; height: 700px;
+  background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+  opacity: 0.7;
+  top: -150px; left: -200px;
+  animation: nit-float 14s ease-in-out infinite;
 }
 .nit-orb-2 {
-  width: 500px; height: 500px;
-  background: var(--magenta);
-  opacity: 0.18;
-  top: 40%; right: -150px;
-  animation: nit-float 22s ease-in-out infinite reverse;
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, var(--magenta) 0%, transparent 70%);
+  opacity: 0.55;
+  top: 30%; right: -200px;
+  animation: nit-float 18s ease-in-out infinite reverse;
 }
 .nit-orb-3 {
+  width: 550px; height: 550px;
+  background: radial-gradient(circle, var(--violet) 0%, transparent 70%);
+  opacity: 0.6;
+  bottom: -150px; left: 30%;
+  animation: nit-float 20s ease-in-out infinite;
+}
+
+/* Дополнительный acid orb для разнообразия */
+.nit-orb-4 {
   width: 400px; height: 400px;
-  background: var(--violet);
-  opacity: 0.22;
-  bottom: -100px; left: 30%;
-  animation: nit-float 25s ease-in-out infinite;
+  background: radial-gradient(circle, var(--acid) 0%, transparent 70%);
+  opacity: 0.25;
+  top: 60%; left: 10%;
+  animation: nit-float 22s ease-in-out infinite reverse;
 }
 
 @keyframes nit-float {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(40px, -60px) scale(1.1); }
+  33%      { transform: translate(60px, -80px) scale(1.15); }
+  66%      { transform: translate(-40px, 40px) scale(0.9); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PARTICLES — летающие точки
+   ═══════════════════════════════════════════════════════════════ */
+
+.nit-particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.nit-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent-glow);
+  box-shadow: 0 0 8px var(--accent), 0 0 12px var(--accent);
+  bottom: -20px;
+  animation: nit-particle-rise linear infinite;
+}
+
+.nit-particle.mag {
+  background: var(--magenta-glow);
+  box-shadow: 0 0 8px var(--magenta), 0 0 12px var(--magenta);
+}
+.nit-particle.acid {
+  background: var(--acid-glow);
+  box-shadow: 0 0 8px var(--acid), 0 0 12px var(--acid);
+  width: 2px;
+  height: 2px;
+}
+.nit-particle.violet {
+  background: var(--violet-glow);
+  box-shadow: 0 0 8px var(--violet), 0 0 12px var(--violet);
+}
+
+@keyframes nit-particle-rise {
+  0% {
+    transform: translateY(0) translateX(0);
+    opacity: 0;
+  }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% {
+    transform: translateY(-110vh) translateX(var(--x-drift, 30px));
+    opacity: 0;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -191,21 +289,68 @@ iframe.nit-preview::-webkit-scrollbar-thumb {
   50%      { opacity: 0.35; }
 }
 
+@keyframes nit-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.4),
+                0 0 40px rgba(0, 212, 255, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(0, 212, 255, 0.7),
+                0 0 70px rgba(0, 212, 255, 0.4);
+  }
+}
+
 @keyframes nit-marquee {
   to { transform: translateX(-50%); }
 }
 
+/* GLITCH — теперь правильный, на ОСНОВНОМ элементе */
+@keyframes nit-glitch-main {
+  0%, 88%, 100% {
+    transform: translate(0);
+    text-shadow:
+      2px 0 var(--magenta),
+      -2px 0 var(--accent-glow);
+  }
+  90% {
+    transform: translate(-3px, 1px);
+    text-shadow:
+      4px 0 var(--magenta),
+      -4px 0 var(--accent-glow),
+      0 0 20px var(--acid);
+  }
+  92% {
+    transform: translate(3px, -1px);
+    text-shadow:
+      -3px 0 var(--magenta),
+      3px 0 var(--accent-glow);
+  }
+  94% {
+    transform: translate(-2px, 2px);
+    text-shadow:
+      5px 0 var(--magenta),
+      -5px 0 var(--accent-glow),
+      0 0 30px var(--accent);
+  }
+  96% {
+    transform: translate(0);
+    text-shadow:
+      2px 0 var(--magenta),
+      -2px 0 var(--accent-glow);
+  }
+}
+
 @keyframes nit-glitch-1 {
-  0%, 90%, 100% { transform: translate(0); }
-  92% { transform: translate(-3px, 2px); }
-  94% { transform: translate(3px, -2px); }
-  96% { transform: translate(-2px, -1px); }
+  0%, 90%, 100% { transform: translate(0); clip-path: inset(0 0 60% 0); }
+  92% { transform: translate(-4px, 2px); clip-path: inset(20% 0 60% 0); }
+  94% { transform: translate(3px, -2px); clip-path: inset(0 0 80% 0); }
+  96% { transform: translate(-2px, -1px); clip-path: inset(0 0 50% 0); }
 }
 @keyframes nit-glitch-2 {
-  0%, 90%, 100% { transform: translate(0); }
-  92% { transform: translate(3px, -2px); }
-  94% { transform: translate(-3px, 2px); }
-  96% { transform: translate(2px, 1px); }
+  0%, 90%, 100% { transform: translate(0); clip-path: inset(60% 0 0 0); }
+  92% { transform: translate(3px, -2px); clip-path: inset(70% 0 0 0); }
+  94% { transform: translate(-3px, 2px); clip-path: inset(50% 0 20% 0); }
+  96% { transform: translate(2px, 1px); clip-path: inset(60% 0 0 0); }
 }
 
 @keyframes nit-tilt {
@@ -218,11 +363,24 @@ iframe.nit-preview::-webkit-scrollbar-thumb {
   to   { opacity: 1; transform: translateX(0); }
 }
 
+/* Animated gradient — bg shift */
+@keyframes nit-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+/* Border glow trace — бегущая обводка */
+@keyframes nit-border-trace {
+  0%   { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
+}
+
+/* Reveal on scroll */
 .nit-reveal {
   opacity: 0;
-  transform: translateY(30px);
-  transition: opacity 0.9s cubic-bezier(0.2, 0.8, 0.2, 1),
-              transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform: translateY(40px);
+  transition: opacity 1s cubic-bezier(0.2, 0.8, 0.2, 1),
+              transform 1s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .nit-reveal.in {
   opacity: 1;
@@ -247,36 +405,89 @@ iframe.nit-preview::-webkit-scrollbar-thumb {
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--accent-glow);
+  text-shadow: 0 0 10px rgba(92, 233, 255, 0.5);
 }
 
-.nit-glitch {
-  font-family: var(--display);
-  font-weight: 900;
-  position: relative;
-  color: transparent;
-  -webkit-text-stroke: 2px var(--accent-glow);
+/* Animated gradient text — для основных строк h1 */
+.nit-gradient-text {
+  background: linear-gradient(
+    90deg,
+    var(--ink) 0%,
+    var(--accent-glow) 30%,
+    var(--ink) 60%,
+    var(--violet-glow) 90%,
+    var(--ink) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: nit-gradient-shift 8s ease-in-out infinite;
 }
-.nit-glitch::before,
-.nit-glitch::after {
+
+/* GLITCH HEADING — единый правильный layered glitch */
+.nit-glitch-text {
+  position: relative;
+  display: inline-block;
+  color: var(--ink);
+  text-shadow:
+    3px 0 var(--magenta),
+    -3px 0 var(--accent-glow),
+    0 0 20px rgba(0, 212, 255, 0.4);
+  animation: nit-glitch-main 5s infinite;
+}
+
+.nit-glitch-text::before,
+.nit-glitch-text::after {
   content: attr(data-text);
   position: absolute;
-  left: 0;
   top: 0;
-  -webkit-text-stroke: 2px var(--magenta);
-}
-.nit-glitch::before {
-  animation: nit-glitch-1 4s infinite;
-  clip-path: inset(0 0 60% 0);
-}
-.nit-glitch::after {
-  -webkit-text-stroke-color: var(--acid);
-  animation: nit-glitch-2 4s infinite;
-  clip-path: inset(60% 0 0 0);
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
-/* Тонкая "underline" для inline-акцентов внутри параграфов */
+.nit-glitch-text::before {
+  color: var(--magenta);
+  animation: nit-glitch-1 5s infinite;
+  mix-blend-mode: screen;
+  opacity: 0.8;
+}
+
+.nit-glitch-text::after {
+  color: var(--accent-glow);
+  animation: nit-glitch-2 5s infinite;
+  mix-blend-mode: screen;
+  opacity: 0.8;
+}
+
+/* Тонкая "underline" для inline-акцентов */
 .nit-mark {
   color: var(--ink);
   border-bottom: 1px dashed var(--accent);
   padding-bottom: 1px;
+  text-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
 }
+
+/* Glow border — для cards с пульсацией */
+.nit-glow-border {
+  position: relative;
+}
+.nit-glow-border::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: nit-border-trace 3s linear infinite;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.nit-glow-border:hover::after { opacity: 1; }

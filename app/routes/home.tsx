@@ -14,7 +14,7 @@ import { useControlSocket } from "~/lib/hooks/useControlSocket";
 import { uuid } from "~/lib/utils/uuid";
 import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
 import { AuthBadge } from "~/components/simple/AuthBadge";
-import { GridBg, Orbs, Chip, NitButton, StatusDot, GlitchHeading } from "~/components/nit";
+import { GridBg, Orbs, Chip, NitButton, StatusDot, GlitchHeading, Particles, ScanLine } from "~/components/nit";
 
 type ViewMode = "welcome" | "generating" | "editing";
 type PipelineStep = "plan" | "template" | "code" | "done";
@@ -493,7 +493,9 @@ export default function Home() {
     return (
       <div className="relative min-h-screen text-[color:var(--ink)] nit-grain overflow-x-hidden">
         <GridBg />
-        <Orbs variant="lite" />
+        <Orbs />
+        <Particles count={30} />
+        <ScanLine />
         <ToastContainer />
         <HistoryPanel isOpen={historyOpen} onClose={() => setHistoryOpen(false)} onOpen={openFromHistory} />
         <SettingsDrawer isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />

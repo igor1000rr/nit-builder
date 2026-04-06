@@ -3,6 +3,17 @@
 All notable changes to NIT Builder are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1-beta] — 2026-04-06
+
+### Fixed
+
+- **Security**: upgraded `ai` from `^4.0.0` to `^5.0.167` and `@ai-sdk/openai` from `^1.0.0` to `^2.0.102` to patch 2 moderate CVEs:
+  - GHSA-rwvc-j5jr-mgvh — filetype whitelist bypass in `ai` ≤5.0.51
+  - GHSA-33vc-wfww-vjfv — XSS in transitive `jsondiffpatch` <0.7.2
+  - `npm audit --omit=dev` now reports **0 vulnerabilities**
+- **404 page**: `$.tsx` splat route now returns HTTP 404 status via `loader` throwing `Response(null, { status: 404 })`. Previously all unknown paths returned HTTP 200
+- **API breaking change migration**: `maxTokens` → `maxOutputTokens` in `streamText`/`generateText` calls (3 call sites in orchestrator)
+
 ## [1.3.0-beta] — 2026-04-05
 
 ### Added

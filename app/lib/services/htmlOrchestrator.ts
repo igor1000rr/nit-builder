@@ -98,7 +98,7 @@ export async function* executeHtmlSimple(
       model,
       system: buildPlannerPrompt(),
       prompt: sanitized,
-      maxTokens: 1500,
+      maxOutputTokens: 1500,
       temperature: 0.3,
       abortSignal: signal,
     });
@@ -171,7 +171,7 @@ export async function* executeHtmlSimple(
       model,
       system: buildCoderPrompt({ templateHtml, plan }),
       prompt: "Адаптируй шаблон под план. Верни готовый HTML.",
-      maxTokens: maxOutput,
+      maxOutputTokens: maxOutput,
       temperature: 0.4,
       abortSignal: signal,
     });
@@ -235,7 +235,7 @@ export async function* executeHtmlPolish(
         userRequest: sanitizeUserMessage(userRequest),
       }),
       prompt: userRequest,
-      maxTokens: maxOutput,
+      maxOutputTokens: maxOutput,
       temperature: 0.3,
       abortSignal: signal,
     });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { MetaFunction } from "react-router";
 import { useAuth } from "~/lib/contexts/AuthContext";
-import { GridBg, Orbs, Chip, NitButton, Particles, ScanLine } from "~/components/nit";
+import { GridBg, Orbs, Chip, NitButton, Particles } from "~/components/nit";
 
 export const meta: MetaFunction = () => [
   { title: "Login // NIT.BUILDER" },
@@ -54,7 +54,6 @@ export default function Login() {
       <GridBg />
       <Orbs />
       <Particles count={25} />
-      <ScanLine />
 
       <nav className="relative z-10 px-8 py-6 max-w-[1400px] mx-auto">
         <a href="/" className="flex items-center gap-3 no-underline w-fit">

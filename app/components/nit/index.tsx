@@ -238,7 +238,7 @@ export function GlitchHeading({
       {lines.map((line, i) => {
         if (Array.isArray(line)) {
           return (
-            <span key={i} className="block">
+            <span key={i} className="block" style={{ lineHeight: 0.85 }}>
               <span className="nit-glitch-text" data-text={line[0]}>
                 {line[0]}
               </span>

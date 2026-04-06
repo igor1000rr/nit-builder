@@ -11,7 +11,6 @@ import {
   StatusDot,
   Marquee,
   Particles,
-  ScanLine,
   HorizontalParticles,
   ConicRays,
   Beams,
@@ -40,7 +39,6 @@ export default function Landing() {
       <Beams />
       <Particles count={35} />
       <HorizontalParticles count={18} />
-      <ScanLine />
 
       {/* ─── NAV ─────────────────────────────────────────────── */}
       <nav

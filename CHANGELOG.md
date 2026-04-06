@@ -9,6 +9,115 @@ Major architectural shift from single-instance cloud tool to peer-to-peer
 distributed compute network. Users bring their own GPU via a tunnel client,
 VPS only routes WebSocket messages between browsers and user tunnels.
 
+### Added (Phase C — Tauri desktop client scaffold)
+
+**C.1 — Scaffold (commits 2d1d939, 41c8fe4):**
+
+Added full Tauri 2 + Rust + React scaffold at `tunnel/desktop/`. This
+provides an installable GUI client (alternative to the Node.js CLI at
+`tunnel/`) that end users can download as `.dmg`/`.exe`/`.AppImage`.
+
+**⚠️ IMPORTANT:** All Rust code in Phase C was written without running
+`cargo check` — the build container has Rust 1.75 via apt but Tauri 2
+transitive deps require Rust 1.85+ (`edition2024` cargo feature), and
+`sh.rustup.rs` is not in the container's domain allowlist. Expect 1-3
+small fixes on first `cargo tauri dev` run. Known issues documented in
+`tunnel/desktop/README.md`.
+
+Rust backend (`tunnel/desktop/src-tauri/`):
+- `Cargo.toml` — tauri 2.0, tokio 1.40 full, tokio-tungstenite 0.24
+  (rustls-tls-webpki-roots), reqwest 0.12 (rustls + stream), serde, anyhow,
+  uuid, log, env_logger. Release profile: panic abort, lto, opt-level "s".
+- `tauri.conf.json` — 480x640 window, CSP allowing `wss://nit.vibecoding.by`,
+  tray icon, updater endpoint, autostart plugin, bundle targets for all
+  4 platforms (dmg/nsis/appimage/deb).
+- `capabilities/default.json` — window/event/shell/store/updater/autostart
+  permissions.
+- `src/protocol.rs` (138 lines) — Rust mirror of `@nit/shared`: TunnelToServer,
+  ServerToTunnel, TunnelCapabilities, Runtime, GpuVendor, ServerErrorCode.
+  Uses `#[serde(tag = "type", rename_all = "snake_case")]` for wire compat
+  with TypeScript side. Fields use `#[serde(rename)]` for camelCase.
+- `src/lm_studio.rs` (244 lines) — LmStudioProxy:
+  - `probe()` — 3s timeout GET /v1/models, returns first model ID
+  - `stream_chat()` — POST /v1/chat/completions with stream=true, SSE
+    parsing via `\n\n` separators, tokio::select for concurrent
+    cancellation via CancellationToken
+  - StreamEvent enum: Start / Text(String) / Done{full_text, duration_ms} /
+    Error(String)
+- `src/tunnel.rs` (~440 lines) — Core runtime:
+  - TunnelConfig, TunnelStatus, TunnelUiEvent types with serde
+  - `spawn(config)` returns TunnelHandle{stop, events}
+  - `run_loop()` with exponential backoff 5s→60s, auth errors stop retry
+  - `connect_and_serve()` refactored (C.1 fix commit 41c8fe4):
+    * outgoing_tx mpsc channel — all TunnelToServer messages flow through
+      single sink, avoiding ws_write borrow conflicts
+    * Per-Generate tokio::spawn task so main loop stays responsive for
+      heartbeat, new messages, stop cancellation during long LLM streams
+    * Shared Arc<LmStudioProxy> across all requests
+    * HashMap<requestId, CancellationToken> for abort propagation
+  - Main tokio::select loop branches: stop / heartbeat tick / outgoing_rx /
+    ws_read.next()
+- `src/lib.rs` — Tauri entry + 4 IPC commands:
+  - `start_tunnel(payload)` — validates, stops existing, spawns new runtime,
+    bridges events via `app.emit("tunnel-event", ...)`
+  - `stop_tunnel()` — cancels running tunnel via stored CancellationToken
+  - `is_tunnel_running()` — boolean status check
+  - `probe_lm_studio(url)` — tests LM Studio reachability from login screen
+  - AppState with `Mutex<Option<CancellationToken>>` (simplified from
+    holding full TunnelHandle after refactor)
+  - Plugins: shell, store, updater, autostart
+  - `--autostart` CLI flag to skip window show (launch agent mode)
+- `src/main.rs` — thin binary wrapper with `windows_subsystem = "windows"`
+  in release mode.
+
+React frontend (`tunnel/desktop/ui/`):
+- React 19 + Vite 6 + Tauri API v2 + plugin-store
+- `src/types.ts` — TypeScript mirror of Rust TunnelStatus, TunnelUiEvent,
+  StartTunnelPayload, LmStudioProbeResult (discriminated unions tagged
+  by `type`/`status` to match Rust serde)
+- `src/App.tsx` (282 lines):
+  - Two-screen flow: login | dashboard
+  - PersistedConfig via @tauri-apps/plugin-store (config.bin)
+  - Auto-start tunnel on mount if saved token exists
+  - Subscribes to 'tunnel-event' via `listen<TunnelUiEvent>`
+  - Tracks active requests in Map<requestId, {tokens, startedAt}>
+  - Log buffer capped at 200 entries
+- `src/components/LoginForm.tsx` — token password field, LM Studio URL with
+  "Test" button (calls probe_lm_studio IPC), advanced details for server
+  URL override, Russian labels
+- `src/components/StatusDashboard.tsx` — pulsing status dot (green/yellow/
+  red/grey), info strip with server + LM Studio URLs, active requests list,
+  log panel slot, Stop / Forget token buttons
+- `src/components/LogPanel.tsx` — timestamped log entries in monospace font
+- `index.html` — dark theme CSS custom properties
+
+Icons (`tunnel/desktop/src-tauri/icons/`):
+- 32x32.png, 128x128.png, 128x128@2x.png, icon.png — placeholder blue
+  gradient generated via Python PIL. Replace with real branding before
+  production release.
+- icon.icns (macOS) — generated via png2icns with all 4 sizes
+- icon.ico (Windows) — generated via ImageMagick with auto-resize to
+  256/128/64/48/32/16
+
+CI (`.github/workflows/tunnel-release.yml`):
+- Triggered by `tunnel-v*` tag push or manual workflow_dispatch
+- Matrix: macos-latest (aarch64 + x86_64), ubuntu-22.04, windows-latest
+- Uses `tauri-apps/tauri-action@v0` with signing env vars from secrets
+- Creates GitHub draft prerelease with all bundle artifacts
+- Code signing optional — secrets missing = unsigned builds still produced
+
+Root workspaces:
+- package.json workspaces array updated to include `tunnel/desktop/ui`
+
+Known issues to address on first build:
+- Rust version mismatch: Cargo.toml says `rust-version = "1.75"` (was changed
+  to accommodate apt rustc in the dev container) but actual Tauri 2 deps
+  need 1.77+. Igor should change back to 1.77 on his machine.
+- Icons are placeholder blue gradients
+- No code signing configured
+- `core:window:allow-show` permission name may have changed in stable
+  Tauri 2 — check docs
+
 ### Added (Phase B — Appwrite auth + Мои сайты)
 
 **B.1 — SDK wrapper + tunnel tokens (commit 8159e60):**

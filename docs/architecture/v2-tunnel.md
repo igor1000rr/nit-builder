@@ -1,8 +1,9 @@
 # NIT Builder v2.0 — Tunnel Architecture
 
-**Status:** In development
+**Status:** Phase A ✅ + Phase B ✅ complete, Phase C scaffold ⏳
 **Started:** 2026-04-06
-**Target:** v2.0.0 stable
+**Last updated:** 2026-04-06 (Phase C.1 scaffold)
+**Target:** v2.0.0 stable after Phase C ready + deployed to nit.vibecoding.by
 
 ---
 
@@ -252,42 +253,87 @@ sessions: Map<string, { userId: string; ws: WebSocket }>;
 
 ## Phase breakdown
 
-### Phase A: Tunnel protocol MVP (3-4 дня)
-- [ ] `shared/protocol.ts` — все типы сообщений
-- [ ] `app/lib/services/tunnelRegistry.ts` — in-memory Map для туннелей
-- [ ] `app/routes/api.tunnel.ts` — WebSocket endpoint для клиентов (raw token auth, без Appwrite пока)
-- [ ] `app/routes/api.control.ts` — WebSocket endpoint для браузеров
-- [ ] `app/lib/services/tunnelOrchestrator.ts` — адаптер, использует registry вместо `streamText`
-- [ ] `tunnel/` — Node.js CLI (`npx nit-tunnel`), hardcoded token, для dev-тестирования
-- [ ] Feature flag `PRIMARY_MODE=tunnel|groq` в env
-- [ ] E2E тест: Mac клиент → localhost VPS → genрит реальный сайт через LM Studio
+### Phase A: Tunnel protocol MVP ✅ **COMPLETE** (commit cae6024)
+- [x] `shared/src/protocol.ts` — все типы сообщений
+- [x] `app/lib/services/tunnelRegistry.server.ts` — in-memory Map для туннелей (Map<userId, TunnelConnection[]>, Map<sessionId, BrowserSession>, Map<requestId, PendingRequest>)
+- [x] WebSocket endpoints `/api/tunnel` и `/api/control` через custom `server.ts` (не через API route)
+- [x] `app/lib/server/wsHandlers.server.ts` — handleTunnelConnection + handleControlConnection
+- [x] `tunnel/src/` — Node.js CLI (`npx nit-tunnel`) с reconnect, heartbeat, abort propagation
+- [x] E2E verified: mock LM Studio на :9999 + CLI → handshake + stream работает
+- 19 новых тестов для `tunnelRegistry.server.ts`
 
-**Exit criteria:** `curl -X POST /api/pipeline/simple` на production работает через туннель, если туннель онлайн.
+**Exit criteria MET:** WebSocket upgrade возвращает HTTP 101, валидный dev token → `✓ Authenticated`, невалидный → `INVALID_TOKEN` + retry loop.
 
-### Phase B: Appwrite auth integration (3-4 дня)
-- [ ] Создать коллекции `nit_users`, `nit_sites`, `nit_generations` в Appwrite
-- [ ] Register/login UI (modal на главной + standalone `/login`)
-- [ ] `app/lib/server/appwrite.ts` — SDK wrapper
-- [ ] `/api/auth/*` endpoints: register, login, logout, reveal-tunnel-token, regenerate-tunnel-token
-- [ ] Заменить localStorage history на Appwrite `nit_sites` CRUD
-- [ ] "Мои сайты" page работает между устройствами
-- [ ] Tunnel client использует token из регистрации вместо hardcoded
+### Phase B: Appwrite auth integration ✅ **COMPLETE** (commits 8159e60 → 921a9cd)
 
-**Exit criteria:** юзер регистрируется, получает токен, качает tunnel CLI, вводит токен, генерит сайты, видит их на "Мои сайты" с другого устройства.
+**B.1 — SDK wrapper + tunnel tokens (8159e60)**
+- [x] Коллекции `nit_users`, `nit_sites`, `nit_generations` через `scripts/appwrite-migrate.ts` (idempotent)
+- [x] `app/lib/server/appwrite.server.ts` — typed SDK wrapper
+- [x] `app/lib/server/tunnelTokens.server.ts` — **two-field scheme**: HMAC-SHA256 lookup + argon2id hash (random-salt argon2 alone не работает — нельзя query DB по хэшу с random salt)
+- [x] 22 новых теста для tunnelTokens
 
-### Phase C: Tauri GUI client (5-7 дней)
-- [ ] `tunnel/` Tauri scaffold (Rust + React + Vite)
-- [ ] Porting CLI logic в Rust с `tokio-tungstenite`
-- [ ] GUI экраны: login, tunnel status, generations log, settings
-- [ ] LM Studio auto-detect на `localhost:1234` + опциональный custom URL
-- [ ] Система обновлений через Tauri updater
-- [ ] GitHub Actions CI для сборки `.dmg`, `.exe`, `.AppImage`
-- [ ] Code signing для macOS (Apple Developer, $99/year)
-- [ ] Installer страница на сайте: `/download` с автодетектом OS
+**B.2 — Auth endpoints (1d93712)**
+- [x] `/api/auth/register` — Zod validated, creates user + tunnel token, HttpOnly cookie
+- [x] `/api/auth/login` — rate limited 10/min/IP, creates session
+- [x] `/api/auth/logout` — clears cookie + Appwrite session
+- [x] `/api/auth/me` — returns auth state + live tunnel status from registry
+- [x] `/api/auth/regenerate-tunnel-token` — requires password re-entry
+- [x] `app/lib/server/sessionCookie.server.ts` + `requireAuth.server.ts`
 
-**Exit criteria:** юзер заходит на сайт → скачивает .dmg (или .exe/.AppImage) → устанавливает → логинится → генерит сайты.
+**B.3 — wsHandlers Appwrite integration (a5fd57b)**
+- [x] Replaced dev-stub `validateTunnelToken` with real `findUserByTunnelToken` (HMAC lookup → argon2 verify)
+- [x] Browser WebSocket auto-auth via `Cookie` header on upgrade (no handshake message)
+- [x] Dev fallback preserved when `APPWRITE_API_KEY` unset
 
-### Phase D: Embedded llama.cpp runtime (5-7 дней)
+**B.4 — Login/register UI (a8c3b4a)**
+- [x] `/login` + `/register` routes with Russian forms
+- [x] Register two-step flow: form → token reveal screen (shown once) + copy-to-clipboard
+- [x] SettingsDrawer: Account section (email, tunnel status, logout) + Tunnel Token section (regenerate with password re-entry)
+
+**B.5 — home.tsx WebSocket integration (a617ed7)**
+- [x] `app/lib/hooks/useAuth.ts` — fetches `/api/auth/me` once
+- [x] `app/lib/hooks/useControlSocket.ts` — WebSocket manager with exponential backoff, heartbeat, typed events
+- [x] Dual-path `createSite`/`polishSite`: WebSocket if authed+tunnel online, HTTP fallback
+- [x] Tunnel status indicator in nav, offline banner, sign-up CTA
+
+**B.6 — Мои сайты → Appwrite (921a9cd)**
+- [x] `/api/sites` GET list + POST save (Zod validated)
+- [x] `/api/sites/:id` GET one (with HTML) + DELETE (ownership check)
+- [x] `app/lib/stores/remoteHistoryStore.ts` — Appwrite-backed client + migration helper
+- [x] `HistoryPanel` dual-source: localStorage для гостей, Appwrite для authed
+- [x] Auto-migration from localStorage → Appwrite on first authed open
+- [x] Fire-and-forget `saveRemoteSite` in both WS and HTTP generation paths
+
+**Exit criteria MET:** Юзер регистрируется → получает plaintext токен → запускает `tunnel/` CLI → открывает `/` → WebSocket auto-auth via cookie → generates sites through tunnel → sees them on "Мои сайты" across devices. Ownership checks return 401/404 without session cookie (runtime verified). 175/175 tests passing.
+
+### Phase C: Tauri GUI client ⏳ **SCAFFOLD COMPLETE** (commits 2d1d939, 41c8fe4)
+
+- [x] `tunnel/desktop/src-tauri/` Tauri 2 scaffold (Cargo.toml, tauri.conf.json, build.rs, capabilities, icons)
+- [x] `src/protocol.rs` — Rust mirror of `@nit/shared` protocol types
+- [x] `src/lm_studio.rs` — `LmStudioProxy` with probe() + stream_chat() + CancellationToken abort
+- [x] `src/tunnel.rs` — Full runtime: spawn(), run_loop() with exponential backoff 5s→60s, connect_and_serve() with:
+  - `outgoing_tx` mpsc channel for single ws_write sink (avoids borrow conflicts)
+  - Per-request `tokio::spawn` tasks so main loop stays responsive
+  - Shared `Arc<LmStudioProxy>` across all generate tasks
+  - HashMap tracking for per-request CancellationTokens
+- [x] `src/lib.rs` — 4 IPC commands: start_tunnel, stop_tunnel, is_tunnel_running, probe_lm_studio
+- [x] `ui/` React 19 + Vite 6 + Tauri API v2
+- [x] UI components: LoginForm (with LM Studio test button), StatusDashboard (pulsing status header), LogPanel
+- [x] Config persistence via `@tauri-apps/plugin-store`
+- [x] `.github/workflows/tunnel-release.yml` — cross-platform CI (macOS arm64+x86, Windows, Linux)
+- [x] Placeholder icons (32x32/128x128/128x128@2x/icon.png/.icns/.ico)
+- [x] Root `package.json` workspaces updated
+- [x] Full README with build instructions + known issues
+
+**Not yet done in Phase C:**
+- [ ] **`cargo check` verification** — container has Rust 1.75 but Tauri 2 deps require 1.85+, written blind. Expect 1-3 small fixes on Igor's first `cargo tauri dev`.
+- [ ] Real branding icons (current ones are placeholder blue gradient)
+- [ ] Code signing setup (Apple Developer $99/year + Windows cert ~$100-400/year)
+- [ ] End-to-end test with real Appwrite + real LM Studio + real Tauri build
+
+**Exit criteria for C complete:** Юзер скачивает `.dmg`/`.exe`/`.AppImage` → устанавливает → вводит токен → видит "Подключён" → `nit.vibecoding.by` генерирует сайты через его GPU. Signed binaries на GitHub Releases.
+
+### Phase D: Embedded llama.cpp runtime ⏳ **NOT STARTED** (optional, may defer to v2.1)
 - [ ] `llama-cpp-2` Rust crate integration
 - [ ] Model download manager в GUI (прогресс бар, resume, Hugging Face API)
 - [ ] Пресеты моделей: Qwen2.5-Coder-7B-Q4, Qwen2.5-Coder-3B-Q4, Llama-3.2-3B-Q4

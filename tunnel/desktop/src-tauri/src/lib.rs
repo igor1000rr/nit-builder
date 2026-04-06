@@ -13,17 +13,17 @@ mod protocol;
 mod tunnel;
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
-use tunnel::{spawn as spawn_tunnel, TunnelConfig, TunnelHandle, TunnelUiEvent};
+use tokio_util::sync::CancellationToken;
+use tunnel::{spawn as spawn_tunnel, TunnelConfig, TunnelHandle};
 
 // ─── App state ───────────────────────────────────────────────────
 
 #[derive(Default)]
 struct AppState {
-    /// Currently running tunnel handle. None if not started.
-    tunnel_handle: Mutex<Option<TunnelHandle>>,
+    /// Stop token for the currently running tunnel. None if not started.
+    stop_token: Mutex<Option<CancellationToken>>,
 }
 
 // ─── IPC commands ────────────────────────────────────────────────
@@ -49,9 +49,9 @@ async fn start_tunnel(
 ) -> Result<StartTunnelResult, String> {
     // Stop any existing tunnel first
     {
-        let mut guard = state.tunnel_handle.lock().await;
+        let mut guard = state.stop_token.lock().await;
         if let Some(existing) = guard.take() {
-            existing.stop();
+            existing.cancel();
         }
     }
 
@@ -76,19 +76,10 @@ async fn start_tunnel(
     };
 
     let handle = spawn_tunnel(config);
-
-    // Extract event receiver BEFORE moving handle into state.
-    // We need to destructure because moving out of a field of a struct
-    // requires the rest of the struct to not be used again.
     let TunnelHandle { stop, events } = handle;
 
-    // Store a new handle (with a dummy receiver) in state. The real receiver
-    // lives in the forwarder task below.
-    let (_dummy_tx, dummy_rx) = tokio::sync::mpsc::unbounded_channel();
-    *state.tunnel_handle.lock().await = Some(TunnelHandle {
-        stop: stop.clone(),
-        events: dummy_rx,
-    });
+    // Store stop token for later cancellation
+    *state.stop_token.lock().await = Some(stop);
 
     // Spawn event forwarder: tunnel events → Tauri window events
     let app_for_events = app.clone();
@@ -107,16 +98,16 @@ async fn start_tunnel(
 
 #[tauri::command]
 async fn stop_tunnel(state: State<'_, AppState>) -> Result<(), String> {
-    let mut guard = state.tunnel_handle.lock().await;
-    if let Some(handle) = guard.take() {
-        handle.stop();
+    let mut guard = state.stop_token.lock().await;
+    if let Some(token) = guard.take() {
+        token.cancel();
     }
     Ok(())
 }
 
 #[tauri::command]
 async fn is_tunnel_running(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.tunnel_handle.lock().await.is_some())
+    Ok(state.stop_token.lock().await.is_some())
 }
 
 #[derive(Debug, Serialize)]

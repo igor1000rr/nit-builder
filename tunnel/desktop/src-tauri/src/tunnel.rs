@@ -138,7 +138,7 @@ async fn run_loop(
 
         // Connect to server
         let _ = events.send(TunnelUiEvent::StatusChanged(TunnelStatus::Connecting));
-        match connect_and_serve(&config, model.clone(), &lm_studio, &events, &stop).await {
+        match connect_and_serve(&config, model.clone(), &events, &stop).await {
             Ok(_) => {
                 // Normal close, reset backoff
                 backoff = INITIAL_BACKOFF_SECS;
@@ -177,7 +177,6 @@ async fn wait_or_cancel(cancel: &CancellationToken, dur: Duration) {
 async fn connect_and_serve(
     config: &TunnelConfig,
     model: String,
-    lm_studio: &LmStudioProxy,
     events: &mpsc::UnboundedSender<TunnelUiEvent>,
     stop: &CancellationToken,
 ) -> Result<()> {
@@ -200,14 +199,23 @@ async fn connect_and_serve(
         .send(Message::Text(serde_json::to_string(&hello)?))
         .await?;
 
+    // Outgoing message channel — all TunnelToServer messages from anywhere
+    // in the runtime go through this single sink, avoiding ws_write borrow
+    // issues across tasks.
+    let (outgoing_tx, mut outgoing_rx) = mpsc::unbounded_channel::<TunnelToServer>();
+
     // Active request aborters
-    let active: Arc<Mutex<HashMap<String, CancellationToken>>> = Arc::new(Mutex::new(HashMap::new()));
+    let active: Arc<Mutex<HashMap<String, CancellationToken>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    // Shared LM Studio proxy (one instance used across all requests)
+    let proxy = Arc::new(LmStudioProxy::new(config.lm_studio_url.clone())?);
 
     // Heartbeat timer
     let mut heartbeat = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
     heartbeat.tick().await; // skip first immediate tick
 
-    // Main event loop
+    // Main event loop — drains ws_read, outgoing_rx, heartbeat, stop
     loop {
         tokio::select! {
             _ = stop.cancelled() => {
@@ -219,8 +227,20 @@ async fn connect_and_serve(
                 let hb = TunnelToServer::Heartbeat {
                     timestamp: now_millis(),
                 };
-                if ws_write.send(Message::Text(serde_json::to_string(&hb)?)).await.is_err() {
-                    return Err(anyhow::anyhow!("Heartbeat send failed"));
+                if let Ok(json) = serde_json::to_string(&hb) {
+                    if ws_write.send(Message::Text(json)).await.is_err() {
+                        return Err(anyhow::anyhow!("Heartbeat send failed"));
+                    }
+                }
+            }
+
+            // Drain outgoing messages (from generate tasks)
+            outgoing = outgoing_rx.recv() => {
+                let Some(msg) = outgoing else { continue };
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    if ws_write.send(Message::Text(json)).await.is_err() {
+                        return Err(anyhow::anyhow!("Outgoing send failed"));
+                    }
                 }
             }
 
@@ -243,110 +263,158 @@ async fn connect_and_serve(
                         match parsed {
                             ServerToTunnel::Welcome { user_id, .. } => {
                                 let _ = events.send(TunnelUiEvent::StatusChanged(
-                                    TunnelStatus::Connected { user_id: user_id.clone(), model: model.clone() },
+                                    TunnelStatus::Connected {
+                                        user_id: user_id.clone(),
+                                        model: model.clone(),
+                                    },
                                 ));
-                                let _ = events.send(TunnelUiEvent::Log(
-                                    format!("Authenticated as user {}", user_id),
-                                ));
+                                let _ = events.send(TunnelUiEvent::Log(format!(
+                                    "Authenticated as user {}",
+                                    user_id
+                                )));
                             }
                             ServerToTunnel::HeartbeatAck { .. } => {
                                 // silent
                             }
-                            ServerToTunnel::Generate { request_id, system, prompt, max_output_tokens, temperature, model: override_model } => {
+                            ServerToTunnel::Generate {
+                                request_id,
+                                system,
+                                prompt,
+                                max_output_tokens,
+                                temperature,
+                                model: override_model,
+                            } => {
                                 let _ = events.send(TunnelUiEvent::RequestStarted {
                                     request_id: request_id.clone(),
                                 });
 
-                                // Create cancellation token for this request
                                 let token = CancellationToken::new();
-                                active.lock().await.insert(request_id.clone(), token.clone());
+                                active
+                                    .lock()
+                                    .await
+                                    .insert(request_id.clone(), token.clone());
 
-                                // Channel to receive stream events from LM Studio proxy
-                                let (stream_tx, mut stream_rx) = mpsc::channel::<StreamEvent>(256);
+                                // Spawn a task per request so main loop stays responsive.
+                                // Task sends all outgoing messages via outgoing_tx channel.
+                                let lm_model =
+                                    override_model.unwrap_or_else(|| model.clone());
+                                let proxy_for_task = proxy.clone();
+                                let events_for_task = events.clone();
+                                let outgoing_for_task = outgoing_tx.clone();
+                                let active_for_task = active.clone();
+                                let req_id_for_task = request_id.clone();
 
-                                // Clone for async move
-                                let lm_model = override_model.unwrap_or_else(|| model.clone());
-                                let proxy = LmStudioProxy::new(config.lm_studio_url.clone())?;
-                                let token_for_proxy = token.clone();
                                 tokio::spawn(async move {
-                                    proxy.stream_chat(
-                                        lm_model,
-                                        system,
-                                        prompt,
-                                        max_output_tokens,
-                                        temperature,
-                                        stream_tx,
-                                        token_for_proxy,
-                                    ).await;
-                                });
+                                    let (stream_tx, mut stream_rx) =
+                                        mpsc::channel::<StreamEvent>(256);
 
-                                // Forward stream events to server
-                                let mut tokens = 0usize;
-                                while let Some(ev) = stream_rx.recv().await {
-                                    match ev {
-                                        StreamEvent::Start => {
-                                            let m = TunnelToServer::ResponseStart {
-                                                request_id: request_id.clone(),
-                                            };
-                                            ws_write.send(Message::Text(serde_json::to_string(&m)?)).await.ok();
-                                        }
-                                        StreamEvent::Text(text) => {
-                                            tokens += 1;
-                                            let _ = events.send(TunnelUiEvent::RequestProgress {
-                                                request_id: request_id.clone(),
-                                                tokens,
-                                            });
-                                            let m = TunnelToServer::ResponseText {
-                                                request_id: request_id.clone(),
-                                                text,
-                                            };
-                                            ws_write.send(Message::Text(serde_json::to_string(&m)?)).await.ok();
-                                        }
-                                        StreamEvent::Done { full_text, duration_ms } => {
-                                            let m = TunnelToServer::ResponseDone {
-                                                request_id: request_id.clone(),
+                                    // Launch the LLM call
+                                    let proxy_inner = proxy_for_task.clone();
+                                    let cancel = token.clone();
+                                    tokio::spawn(async move {
+                                        proxy_inner
+                                            .stream_chat(
+                                                lm_model,
+                                                system,
+                                                prompt,
+                                                max_output_tokens,
+                                                temperature,
+                                                stream_tx,
+                                                cancel,
+                                            )
+                                            .await;
+                                    });
+
+                                    // Forward stream events to outgoing channel
+                                    let mut tokens = 0usize;
+                                    while let Some(ev) = stream_rx.recv().await {
+                                        match ev {
+                                            StreamEvent::Start => {
+                                                let _ = outgoing_for_task.send(
+                                                    TunnelToServer::ResponseStart {
+                                                        request_id: req_id_for_task.clone(),
+                                                    },
+                                                );
+                                            }
+                                            StreamEvent::Text(text) => {
+                                                tokens += 1;
+                                                let _ = events_for_task.send(
+                                                    TunnelUiEvent::RequestProgress {
+                                                        request_id: req_id_for_task.clone(),
+                                                        tokens,
+                                                    },
+                                                );
+                                                let _ = outgoing_for_task.send(
+                                                    TunnelToServer::ResponseText {
+                                                        request_id: req_id_for_task.clone(),
+                                                        text,
+                                                    },
+                                                );
+                                            }
+                                            StreamEvent::Done {
                                                 full_text,
                                                 duration_ms,
-                                                prompt_tokens: None,
-                                                completion_tokens: Some(tokens as u32),
-                                            };
-                                            ws_write.send(Message::Text(serde_json::to_string(&m)?)).await.ok();
-                                            let _ = events.send(TunnelUiEvent::RequestCompleted {
-                                                request_id: request_id.clone(),
-                                                duration_ms,
-                                            });
-                                            break;
-                                        }
-                                        StreamEvent::Error(error) => {
-                                            let m = TunnelToServer::ResponseError {
-                                                request_id: request_id.clone(),
-                                                error: error.clone(),
-                                            };
-                                            ws_write.send(Message::Text(serde_json::to_string(&m)?)).await.ok();
-                                            let _ = events.send(TunnelUiEvent::RequestFailed {
-                                                request_id: request_id.clone(),
-                                                error,
-                                            });
-                                            break;
+                                            } => {
+                                                let _ = outgoing_for_task.send(
+                                                    TunnelToServer::ResponseDone {
+                                                        request_id: req_id_for_task.clone(),
+                                                        full_text,
+                                                        duration_ms,
+                                                        prompt_tokens: None,
+                                                        completion_tokens: Some(
+                                                            tokens as u32,
+                                                        ),
+                                                    },
+                                                );
+                                                let _ = events_for_task.send(
+                                                    TunnelUiEvent::RequestCompleted {
+                                                        request_id: req_id_for_task.clone(),
+                                                        duration_ms,
+                                                    },
+                                                );
+                                                break;
+                                            }
+                                            StreamEvent::Error(error) => {
+                                                let _ = outgoing_for_task.send(
+                                                    TunnelToServer::ResponseError {
+                                                        request_id: req_id_for_task.clone(),
+                                                        error: error.clone(),
+                                                    },
+                                                );
+                                                let _ = events_for_task.send(
+                                                    TunnelUiEvent::RequestFailed {
+                                                        request_id: req_id_for_task.clone(),
+                                                        error,
+                                                    },
+                                                );
+                                                break;
+                                            }
                                         }
                                     }
-                                }
 
-                                active.lock().await.remove(&request_id);
+                                    active_for_task.lock().await.remove(&req_id_for_task);
+                                });
                             }
                             ServerToTunnel::Abort { request_id } => {
-                                if let Some(token) = active.lock().await.remove(&request_id) {
+                                if let Some(token) =
+                                    active.lock().await.remove(&request_id)
+                                {
                                     token.cancel();
-                                    let _ = events.send(TunnelUiEvent::Log(
-                                        format!("Aborted request {}", &request_id[..8.min(request_id.len())]),
-                                    ));
+                                    let _ = events.send(TunnelUiEvent::Log(format!(
+                                        "Aborted request {}",
+                                        &request_id[..8.min(request_id.len())]
+                                    )));
                                 }
                             }
                             ServerToTunnel::Error { code, message } => {
-                                let _ = events.send(TunnelUiEvent::Log(
-                                    format!("Server error [{:?}]: {}", code, message),
-                                ));
-                                if matches!(code, ServerErrorCode::AuthFailed | ServerErrorCode::InvalidToken) {
+                                let _ = events.send(TunnelUiEvent::Log(format!(
+                                    "Server error [{:?}]: {}",
+                                    code, message
+                                )));
+                                if matches!(
+                                    code,
+                                    ServerErrorCode::AuthFailed | ServerErrorCode::InvalidToken
+                                ) {
                                     return Err(anyhow::anyhow!("Auth failed: {}", message));
                                 }
                             }

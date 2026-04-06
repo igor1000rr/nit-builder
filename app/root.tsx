@@ -17,7 +17,7 @@ export const links: LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
   {
     rel: "stylesheet",
-    href: "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap",
+    href: "https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;700;900&family=JetBrains+Mono:wght@300;400;500;700&display=swap",
   },
 ];
 
@@ -46,11 +46,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#020617" />
+        <meta name="theme-color" content="#05060a" />
         <Meta />
         <Links />
       </head>
-      <body className="bg-slate-950 text-white antialiased">
+      <body className="bg-nit-bg text-nit-ink antialiased font-mono">
         {children}
         <ScrollRestoration />
         <Scripts />
@@ -79,17 +79,24 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
-      <h1 className="text-7xl font-extrabold mb-4 bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
-        {message}
-      </h1>
-      <p className="text-slate-400 mb-8">{details}</p>
-      <a
-        href="/"
-        className="px-6 py-3 bg-gradient-to-r from-blue-500 to-violet-500 rounded-full font-medium hover:scale-105 transition"
-      >
-        На главную
-      </a>
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
+      <div className="nit-grid-bg" />
+      <div className="nit-orb nit-orb-1" />
+      <div className="nit-orb nit-orb-2" />
+      <div className="relative z-10">
+        <div className="nit-label mb-6">// system error</div>
+        <h1 className="nit-display text-8xl md:text-[10rem] mb-6 text-[color:var(--accent-glow)]">
+          {message}
+        </h1>
+        <p className="text-[color:var(--muted)] mb-10 max-w-md mx-auto">{details}</p>
+        <a
+          href="/"
+          className="inline-block px-8 py-4 bg-[color:var(--accent)] text-black font-bold text-xs tracking-[0.15em] uppercase hover:bg-[color:var(--accent-glow)] transition"
+          style={{ boxShadow: "var(--glow-cyan)" }}
+        >
+          ← Back to root
+        </a>
+      </div>
     </div>
   );
 }

@@ -40,6 +40,52 @@ import { parseSessionCookie, verifySessionToken } from "./sessionCookie.server";
 
 const SERVER_VERSION = "2.0.0-alpha.0" as const;
 
+// ─── WebSocket keepalive ──────────────────────────────────────────
+//
+// Nginx / любые intermediate прокси рубят WS-соединение если через него
+// нет трафика ~60с. Client-side heartbeat недостаточно надёжен: он идёт
+// в один конец (client → server), и если где-то по дороге буферизация —
+// ping всё равно может не пройти сквозь proxy вовремя.
+//
+// Правильный фикс: server-side WebSocket-level ping каждые 30с
+// + отслеживание pong через флаг isAlive. Если между двумя ping'ами
+// pong не пришёл — соединение мертво, принудительно terminate.
+// Браузер/клиент тогда увидит close и переподключится.
+
+const KEEPALIVE_INTERVAL_MS = 30_000;
+
+function installKeepalive(ws: WebSocket, label: string): () => void {
+  let isAlive = true;
+
+  const onPong = (): void => {
+    isAlive = true;
+  };
+  ws.on("pong", onPong);
+
+  const interval = setInterval(() => {
+    if (!isAlive) {
+      console.log(`[${label}] keepalive: pong timeout, terminating`);
+      try {
+        ws.terminate();
+      } catch {
+        // noop
+      }
+      return;
+    }
+    isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      // soket уже закрыт — следующий tick увидит isAlive=false
+    }
+  }, KEEPALIVE_INTERVAL_MS);
+
+  return () => {
+    clearInterval(interval);
+    ws.off("pong", onPong);
+  };
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────
 // Phase B.3: real Appwrite auth, with dev-token fallback when APPWRITE_API_KEY
 // is not set (makes local E2E testing possible without a live Appwrite).
@@ -82,6 +128,8 @@ async function validateBrowserSession(
 export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): void {
   const connectionId = randomUUID();
   let authed: TunnelConnection | null = null;
+
+  const stopKeepalive = installKeepalive(ws, "tunnel");
 
   const send = (msg: ServerToTunnel): void => {
     try {
@@ -202,6 +250,7 @@ export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): voi
   });
 
   ws.on("close", (code, reason) => {
+    stopKeepalive();
     clearTimeout(authTimer);
     if (authed) {
       console.log(`[tunnel] Closed: user=${authed.userId} code=${code} reason=${reason}`);
@@ -219,6 +268,8 @@ export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): voi
 export function handleControlConnection(ws: WebSocket, req: IncomingMessage): void {
   const sessionId = randomUUID();
   let authed: BrowserSession | null = null;
+
+  const stopKeepalive = installKeepalive(ws, "control");
 
   const send = (msg: ServerToBrowser): void => {
     try {
@@ -368,6 +419,7 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
   });
 
   ws.on("close", () => {
+    stopKeepalive();
     clearTimeout(authTimer);
     if (authed) {
       console.log(`[control] Browser closed: user=${authed.userId}`);

@@ -82,7 +82,7 @@ VPS — dumb router. Вся compute на клиентах. Zero cloud costs, inf
 
 ### Auth: Appwrite email/password
 
-Используем существующий Appwrite instance (`appwrite.vibecoding.by`), project `69aa2114000211b48e63`. Создаём новые коллекции в базе `nit_builder`:
+Используем существующий Appwrite instance (`appwrite.vibecoding.by`), project `69ab07130011752aae12`. Создаём новые коллекции в базе `nit_builder`:
 
 - `nit_users` — extends `users` table, добавляет: `tunnelToken` (unique, 32 bytes hex), `tunnelCreatedAt`, `preferredProvider`, `apiKeys` (encrypted JSON: groq, openrouter)
 - `nit_sites` — "Мои сайты": `userId`, `prompt`, `html`, `templateId`, `templateName`, `createdAt`, `updatedAt`, `thumbnail` (optional SVG)

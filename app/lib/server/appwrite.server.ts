@@ -3,7 +3,7 @@
  *
  * Uses the existing vibecoding Appwrite instance:
  *   endpoint:  https://appwrite.vibecoding.by/v1
- *   projectId: 69aa2114000211b48e63
+ *   projectId: 69ab07130011752aae12
  *
  * Collections (in database `nit_builder`):
  * - nit_users       → extends Appwrite users with tunnelTokenHash, preferences
@@ -15,7 +15,7 @@
  *
  * Required environment variables:
  *   APPWRITE_ENDPOINT      (default: https://appwrite.vibecoding.by/v1)
- *   APPWRITE_PROJECT_ID    (default: 69aa2114000211b48e63)
+ *   APPWRITE_PROJECT_ID    (default: 69ab07130011752aae12)
  *   APPWRITE_API_KEY       (server-side, required — has full scope)
  *   APPWRITE_DATABASE_ID   (default: nit_builder)
  */
@@ -34,7 +34,7 @@ import {
 
 export const APPWRITE_CONFIG = {
   endpoint: process.env.APPWRITE_ENDPOINT ?? "https://appwrite.vibecoding.by/v1",
-  projectId: process.env.APPWRITE_PROJECT_ID ?? "69aa2114000211b48e63",
+  projectId: process.env.APPWRITE_PROJECT_ID ?? "69ab07130011752aae12",
   databaseId: process.env.APPWRITE_DATABASE_ID ?? "nit_builder",
   collections: {
     users: "nit_users",

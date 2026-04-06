@@ -14,7 +14,7 @@
  * Required env:
  *   APPWRITE_API_KEY       — server API key with databases.write scope
  *   APPWRITE_ENDPOINT      — default: https://appwrite.vibecoding.by/v1
- *   APPWRITE_PROJECT_ID    — default: 69aa2114000211b48e63
+ *   APPWRITE_PROJECT_ID    — default: 69ab07130011752aae12
  *   APPWRITE_DATABASE_ID   — default: nit_builder
  */
 
@@ -22,7 +22,7 @@ import { Client, Databases, IndexType } from "node-appwrite";
 
 const config = {
   endpoint: process.env.APPWRITE_ENDPOINT ?? "https://appwrite.vibecoding.by/v1",
-  projectId: process.env.APPWRITE_PROJECT_ID ?? "69aa2114000211b48e63",
+  projectId: process.env.APPWRITE_PROJECT_ID ?? "69ab07130011752aae12",
   databaseId: process.env.APPWRITE_DATABASE_ID ?? "nit_builder",
   apiKey: process.env.APPWRITE_API_KEY,
 };

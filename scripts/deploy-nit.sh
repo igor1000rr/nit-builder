@@ -75,7 +75,7 @@ if [ ! -f ".env.production" ]; then
     NIT_TOKEN_LOOKUP_SECRET=<openssl rand -hex 32>
     APPWRITE_API_KEY=<from appwrite.vibecoding.by console>
     APPWRITE_ENDPOINT=https://appwrite.vibecoding.by/v1
-    APPWRITE_PROJECT_ID=69aa2114000211b48e63
+    APPWRITE_PROJECT_ID=69ab07130011752aae12
     NODE_ENV=production
     PORT=3000
 EOF

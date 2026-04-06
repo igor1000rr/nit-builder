@@ -124,7 +124,7 @@ Known issues to address on first build:
 - `app/lib/server/tunnelTokens.server.ts` — two-field scheme: HMAC-SHA256 lookup + argon2id hash
 - `app/lib/server/appwrite.server.ts` — typed wrapper for node-appwrite with NitUser/NitSite/NitGeneration types
 - `scripts/appwrite-migrate.ts` — idempotent migration creating database, collections, attributes, indexes
-- Env: `APPWRITE_API_KEY`, `APPWRITE_PROJECT_ID` (default 69aa2114000211b48e63), `NIT_TOKEN_LOOKUP_SECRET` (openssl rand -hex 32)
+- Env: `APPWRITE_API_KEY`, `APPWRITE_PROJECT_ID` (default 69ab07130011752aae12), `NIT_TOKEN_LOOKUP_SECRET` (openssl rand -hex 32)
 - 22 new tunnelTokens tests
 
 **B.2 — Auth endpoints (commit 1d93712):**

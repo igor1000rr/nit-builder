@@ -558,17 +558,25 @@ export default function Home() {
                   Туннель не подключён
                 </div>
                 <p className="text-sm text-amber-200/80">
-                  Чтобы генерировать сайты через свой GPU, запусти NIT Tunnel клиент
-                  с твоим токеном. Токен можно перегенерировать в настройках.
+                  Чтобы генерировать сайты через свой GPU, скачай NIT Tunnel
+                  клиент и подключи свой токен.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                className="shrink-0 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-xs text-amber-100 transition"
-              >
-                Настройки →
-              </button>
+              <div className="flex flex-col gap-2 shrink-0">
+                <a
+                  href="/download"
+                  className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-violet-500 rounded-lg text-xs font-semibold text-white transition hover:scale-[1.02] text-center"
+                >
+                  Скачать
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(true)}
+                  className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-xs text-amber-100 transition"
+                >
+                  Настройки
+                </button>
+              </div>
             </div>
           )}
 

@@ -208,8 +208,15 @@ export default function Register() {
               <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl text-sm text-slate-400 mb-6">
                 <p className="mb-2 font-semibold text-slate-300">Что дальше:</p>
                 <ol className="space-y-1 list-decimal list-inside">
-                  <li>Скачай NIT Tunnel клиент (скоро)</li>
-                  <li>Запусти клиент и введи токен</li>
+                  <li>
+                    <a
+                      href="/download"
+                      className="text-blue-400 hover:text-blue-300 transition"
+                    >
+                      Скачай NIT Tunnel клиент →
+                    </a>
+                  </li>
+                  <li>Запусти клиент и вставь токен</li>
                   <li>Возвращайся на сайт и создавай сайты через свой GPU</li>
                 </ol>
               </div>

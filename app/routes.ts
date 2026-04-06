@@ -5,6 +5,7 @@ export default [
   route("about", "routes/landing.tsx"),
   route("login", "routes/login.tsx"),
   route("register", "routes/register.tsx"),
+  route("download", "routes/download.tsx"),
   route("api/pipeline/simple", "routes/api.pipeline.simple.ts"),
   route("api/health", "routes/api.health.ts"),
   route("api/metrics", "routes/api.metrics.ts"),

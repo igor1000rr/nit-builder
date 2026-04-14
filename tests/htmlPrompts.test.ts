@@ -28,7 +28,7 @@ describe("buildPlannerPrompt", () => {
   });
 
   it("includes a concrete example", () => {
-    expect(prompt).toContain("торт"); // from example "домашняя кондитерская"
+    expect(prompt).toContain("торт");
     expect(prompt).toContain("handmade-shop");
   });
 
@@ -36,8 +36,7 @@ describe("buildPlannerPrompt", () => {
     expect(prompt).toContain("ru|en|by");
   });
 
-  it("is reasonably sized (fits in small model context)", () => {
-    // Should fit well within 4k tokens ≈ 14k chars
+  it("is reasonably sized", () => {
     expect(prompt.length).toBeLessThan(14_000);
     expect(prompt.length).toBeGreaterThan(500);
   });
@@ -50,7 +49,7 @@ describe("buildCoderPrompt", () => {
     sections: ["hero", "menu"],
     color_mood: "warm-pastel",
     cta_primary: "Заказать",
-    language: "ru",
+    language: "ru" as const,
   };
   const mockTemplate = "<!DOCTYPE html><html><body>Original</body></html>";
 
@@ -79,6 +78,14 @@ describe("buildCoderPrompt", () => {
   it("requires Tailwind CDN", () => {
     const p = buildCoderPrompt({ templateHtml: mockTemplate, plan: mockPlan });
     expect(p.toLowerCase()).toContain("cdn");
+  });
+
+  it("embeds curated design tokens for the plan's color_mood", () => {
+    const p = buildCoderPrompt({ templateHtml: mockTemplate, plan: mockPlan });
+    // warm-pastel palette primary
+    expect(p).toContain("#d97757");
+    // warm-pastel display font
+    expect(p).toContain("Fraunces");
   });
 });
 

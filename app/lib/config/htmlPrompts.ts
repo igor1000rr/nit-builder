@@ -1,16 +1,6 @@
 import { buildCatalogForPrompt } from "~/lib/config/htmlTemplatesCatalog";
+import { buildDesignTokenHint, type Language } from "~/lib/config/designTokens";
 
-// ─────────────────────────────────────────────────────────────────────────
-// PLANNER
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * System-промпт планировщика.
- *
- * @param candidateIds — опциональный список id шаблонов-кандидатов от retriever-а.
- *   Если передан — каталог в промпте фильтруется до top-K (+ blank-landing
- *   всегда). Экономия ~3KB на вызове планировщика. Без аргумента — полный каталог.
- */
 export function buildPlannerSystemPrompt(candidateIds?: string[]): string {
   return `Ты — Планировщик сайтов. Анализируешь запрос пользователя и возвращаешь СТРОГИЙ JSON с планом сайта + выбираешь подходящий шаблон из каталога.
 
@@ -50,10 +40,6 @@ JSON schema:
 }`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// CODER
-// ─────────────────────────────────────────────────────────────────────────
-
 export const CODER_SYSTEM_PROMPT = `Ты — HTML-Кодер. Адаптируешь готовый HTML-шаблон под план пользователя.
 
 ЧТО ДЕЛАТЬ:
@@ -61,25 +47,40 @@ export const CODER_SYSTEM_PROMPT = `Ты — HTML-Кодер. Адаптируе
 2. Заменяешь ВСЕ тексты (заголовки, описания, пункты меню, CTA, футер) на контекстные тексты, соответствующие business_type, tone и keywords из плана. Тексты на языке plan.language.
 3. Если в plan.sections есть секция, которой нет в шаблоне — добавляешь её в логичное место в стиле остальных секций.
 4. Если в шаблоне есть секция, которой нет в plan.sections — удаляешь её целиком.
-5. Корректируешь цветовую палитру под color_mood (классы Tailwind: bg-*, text-*, border-*, from-*, to-*). Сохраняешь визуальную гармонию.
+5. Корректируешь цветовую палитру под color_mood. Если в user-мессадже даны РЕКОМЕНДОВАННЫЕ ДИЗАЙН-ТОКЕНЫ — предпочитай их hex-значения вместо базовых bg-blue-500 / text-gray-800.
 6. Основные CTA-кнопки содержат текст из plan.cta_primary.
-7. Сохраняешь Tailwind CDN, Alpine.js CDN если есть в шаблоне.
+7. Сохраняешь Tailwind CDN, Alpine.js CDN если есть. Если в дизайн-токенах указаны Google Fonts — подключи их в <head>.
 8. Сохраняешь адаптивность (sm:, md:, lg:).
 
 ЖЁСТКИЕ ПРАВИЛА (нарушение = провал):
 - ТОЛЬКО один HTML-файл целиком. От <!DOCTYPE html> до </html>.
 - Никаких import, require, npm-пакетов.
-- Никаких ссылок на локальные файлы (.css, .js, .png) — только CDN, inline SVG, emoji.
-- Изображения: Unsplash прямые ссылки (https://images.unsplash.com/photo-ID?w=800), inline SVG плейсхолдеры или emoji.
+- Никаких ссылок на локальные файлы (.css, .js, .png) — только CDN, inline SVG, emoji, Unsplash.
 - Интерактивность: Alpine.js (CDN: https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js) или vanilla JS в <script>.
-- В шаблоне есть служебные комментарии-маркеры <!-- ═══ SECTION: hero ═══ --> и <!-- ═══ END SECTION ═══ -->. Они нужны ТОЛЬКО для твоей навигации — НЕ копируй их в финальный HTML. Используй чтобы понять границы секций.
+- В шаблоне есть служебные комментарии-маркеры <!-- ═══ SECTION: hero ═══ -->. НЕ копируй их в финальный HTML.
 - Выводи ТОЛЬКО HTML. Без markdown-блоков \`\`\`, без объяснений до или после. Первая строка: <!DOCTYPE html>.`;
+
+/**
+ * Plan-shape для функции. Мягкий тип — не импортируем Plan из planSchema чтобы
+ * избежать циклических зависимостей и сохранить backward-compat c старыми вызовами.
+ */
+type PlanLike = {
+  color_mood?: string;
+  language?: Language;
+  [key: string]: unknown;
+};
 
 export function buildCoderUserMessage(params: {
   templateHtml: string;
-  plan: unknown;
+  plan: PlanLike;
 }): string {
-  return `ИСХОДНЫЙ ШАБЛОН:
+  const mood = params.plan.color_mood ?? "light-minimal";
+  const language = params.plan.language;
+  const designHint = buildDesignTokenHint({ colorMood: mood, language });
+
+  return `${designHint}
+
+ИСХОДНЫЙ ШАБЛОН:
 \`\`\`html
 ${params.templateHtml}
 \`\`\`
@@ -87,27 +88,23 @@ ${params.templateHtml}
 ПЛАН ПОЛЬЗОВАТЕЛЯ (JSON):
 ${JSON.stringify(params.plan, null, 2)}
 
-Адаптируй шаблон под план. Верни готовый HTML.`;
+Адаптируй шаблон под план с учётом дизайн-токенов. Верни готовый HTML.`;
 }
 
 export function buildCoderPrompt(params: {
   templateHtml: string;
-  plan: unknown;
+  plan: PlanLike;
 }): string {
   return `${CODER_SYSTEM_PROMPT}
 
 ${buildCoderUserMessage(params)}`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// POLISHER
-// ─────────────────────────────────────────────────────────────────────────
-
 export const POLISHER_SYSTEM_PROMPT = `Ты — HTML-Полировщик. Вносишь изменения в существующий HTML-сайт по запросу пользователя.
 
 ПРАВИЛА:
 1. Внеси ТОЛЬКО те изменения, которые просит пользователь. Не трогай остальное.
-2. Сохрани структуру, классы Tailwind, CDN-подключения.
+2. Сохрани структуру, классы Tailwind, CDN-подключения, блок <style id="nit-overrides"> если есть.
 3. "Сделай синее" — меняй цветовые классы (bg-blue-*, text-blue-*, border-blue-*).
 4. "Добавь секцию X" — добавь в логичное место в стиле остальных секций.
 5. "Убери X" — удаляй аккуратно, не ломая соседние блоки.

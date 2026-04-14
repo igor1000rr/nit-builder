@@ -27,7 +27,7 @@ import { metrics } from "~/lib/services/metrics";
 import { repairTruncatedHtml } from "~/lib/utils/htmlRepair";
 import { getCachedPlan, setCachedPlan } from "~/lib/services/planCache";
 import { classifyPolishIntent, type PolishIntent } from "~/lib/services/intentClassifier";
-import { applyCssPatch, extractSectionsFromHtml } from "~/lib/services/cssPatch";
+import { applyCssPatch } from "~/lib/services/cssPatch";
 import { retrieveTemplates } from "~/lib/services/templateRetriever";
 import { enrichSectionAnchors } from "~/lib/utils/sectionAnchors";
 
@@ -42,27 +42,16 @@ export type PipelineEvent =
   | { type: "template_selected"; templateId: string; templateName: string }
   | { type: "text"; text: string }
   | { type: "step_complete"; html?: string }
-  | {
-      type: "polish_mode";
-      intent: PolishIntent;
-      reason: string;
-      targetSections: string[];
-    }
-  | {
-      type: "css_patch_applied";
-      ruleCount: number;
-      css: string;
-      scoped: boolean;
-      targetSections: string[];
-    }
+  | { type: "polish_mode"; intent: PolishIntent; reason: string; targetSection?: string | null }
+  | { type: "css_patch_applied"; ruleCount: number; css: string; targetSection?: string | null; scope?: string | null }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
   providerOverride?: { modelName?: string };
   skipPlanCache?: boolean;
   polishIntent?: PolishIntent;
-  /** Принудительный список целевых секций (обход извлечения из запроса). */
-  targetSections?: string[];
+  /** Принудительный targetSection (обход detectSectionTarget) */
+  targetSection?: string | null;
 };
 
 function stripCodeFences(text: string): string {
@@ -106,10 +95,8 @@ async function obtainPlan(
     const cached = getCachedPlan(sanitizedMessage);
     if (cached) {
       logger.info(SCOPE, `Plan cache hit for: ${sanitizedMessage.slice(0, 60)}`);
-      metrics.planCacheHit();
       return { plan: cached, cached: true };
     }
-    metrics.planCacheMiss();
   }
 
   let candidateIds: string[] | undefined;
@@ -311,36 +298,28 @@ export async function* executeHtmlPolish(
   const startMs = Date.now();
   const sanitizedRequest = sanitizeUserMessage(userRequest);
 
-  // Классификация + извлечение target sections
-  const baseClassification = classifyPolishIntent(sanitizedRequest);
-  const intent: PolishIntent = options.polishIntent ?? baseClassification.intent;
-  const reason = options.polishIntent
-    ? "user override"
-    : baseClassification.reason;
-
-  // Фильтр target sections: оставляем только те, что реально присутствуют в текущем HTML.
-  // Защищает от галлюцинаций юзера ("сделай hero синим" когда hero нет).
-  const availableSections = extractSectionsFromHtml(memory.currentHtml);
-  const availableSet = new Set(availableSections);
-  const requestedTargets = options.targetSections ?? baseClassification.targetSections;
-  const validTargets = requestedTargets.filter((s) => availableSet.has(s));
-
-  metrics.polishIntent(intent, validTargets.length > 0);
-  for (const s of validTargets) metrics.polishSectionTarget(s);
+  const classification = (() => {
+    const c = classifyPolishIntent(sanitizedRequest);
+    return {
+      intent: options.polishIntent ?? c.intent,
+      reason: options.polishIntent ? "user override" : c.reason,
+      targetSection:
+        options.targetSection !== undefined ? options.targetSection : c.targetSection,
+    };
+  })();
 
   yield {
     type: "polish_mode",
-    intent,
-    reason,
-    targetSections: validTargets,
+    intent: classification.intent,
+    reason: classification.reason,
+    targetSection: classification.targetSection ?? null,
   };
 
-  // ─── CSS PATCH PATH ───
-  if (intent === "css_patch") {
+  if (classification.intent === "css_patch") {
     metrics.generationStarted("polish", provider.id);
     yield {
       type: "step_start",
-      roleName: validTargets.length > 0 ? "CSS-Патчер (scoped)" : "CSS-Патчер",
+      roleName: classification.targetSection ? `CSS-Патчер (${classification.targetSection})` : "CSS-Патчер",
       model: provider.defaultModel,
       provider: provider.id,
     };
@@ -350,11 +329,9 @@ export async function* executeHtmlPolish(
         model,
         userRequest: sanitizedRequest,
         currentHtml: memory.currentHtml,
-        targetSections: validTargets.length > 0 ? validTargets : undefined,
+        targetSection: classification.targetSection ?? null,
         signal,
       });
-
-      metrics.patchRulesGenerated(result.ruleCount);
 
       const finalHtml = enrichSectionAnchors(result.html);
       memory.currentHtml = finalHtml;
@@ -366,25 +343,20 @@ export async function* executeHtmlPolish(
         type: "css_patch_applied",
         ruleCount: result.ruleCount,
         css: result.css,
-        scoped: result.scoped,
-        targetSections: validTargets,
+        targetSection: classification.targetSection ?? null,
+        scope: result.scope,
       };
       yield { type: "step_complete", html: finalHtml };
       return;
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
-      const errMsg = (err as Error).message;
       logger.warn(
         SCOPE,
-        `CSS patch failed (${errMsg}), falling back to full rewrite`,
-      );
-      metrics.cssPatchFallback(
-        errMsg.toLowerCase().includes("schema") ? "schema_error" : "other",
+        `CSS patch failed (${(err as Error).message}), falling back to full rewrite`,
       );
     }
   }
 
-  // ─── FULL REWRITE PATH ───
   metrics.generationStarted("polish", provider.id);
   yield {
     type: "step_start",

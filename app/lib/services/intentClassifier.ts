@@ -1,20 +1,5 @@
 /**
- * Классификатор намерений для Polisher.
- *
- * Задача: определить, можно ли обработать запрос юзера дешёвым CSS-патчем
- * (~200 токенов) или нужен полный rewrite всего HTML (~6000-12000 токенов).
- *
- * Дополнительно извлекает целевые секции (hero/pricing/footer/etc) если
- * юзер явно ограничивает правку. Это позволяет CSS-патчеру генерить
- * скопированные селекторы [data-nit-section="X"] вместо глобальных.
- *
- * Запросы вида "сделай фон синим", "увеличь заголовки", "в тёмную тему" —
- * это css_patch (глобальный). "Сделай hero синим", "подсвети только
- * прайс" — css_patch со scope. "Добавь секцию отзывы", "убери блок цен",
- * "перепиши текст в герое" — full_rewrite.
- *
- * Эвристика работает 0ms и покрывает ~80% типовых запросов. Для неоднозначных
- * и нераспознанных выбираем full_rewrite — безопасный default.
+ * Классификатор намерений для Polisher + детектор целевой секции.
  */
 
 export type PolishIntent = "css_patch" | "full_rewrite";
@@ -25,13 +10,10 @@ export type ClassificationResult = {
   reason: string;
   styleHits: number;
   structuralHits: number;
-  /** Section ids упомянутые в запросе (если есть). Пусто — глобальная правка. */
-  targetSections: string[];
+  /** id секции если юзер упомянул конкретную (герой, меню, цены, etc) */
+  targetSection: string | null;
 };
 
-/**
- * Сигналы в пользу CSS-патча (визуальные свойства).
- */
 const STYLE_PATTERNS: RegExp[] = [
   /\bцвет\w*/i,
   /\bколор\w*/i,
@@ -45,11 +27,9 @@ const STYLE_PATTERNS: RegExp[] = [
   /\blight\b/i,
   /\bяр(к|ч)\w*/i,
   /\bпригас\w*/i,
-
   /\bфон\w*/i,
   /\bbackground\b/i,
   /\bbg-/i,
-
   /\bкрупн\w*/i,
   /\bмельч\w*/i,
   /\bпомельче/i,
@@ -65,7 +45,6 @@ const STYLE_PATTERNS: RegExp[] = [
   /\bинтервал\w*/i,
   /\bвысот\w*/i,
   /\bширин\w*/i,
-
   /\bшрифт\w*/i,
   /\bfont\b/i,
   /\bжирн\w*/i,
@@ -73,7 +52,6 @@ const STYLE_PATTERNS: RegExp[] = [
   /\bкурсив\w*/i,
   /\bitalic\b/i,
   /\bподч[её]ркн\w*/i,
-
   /\bскругл\w*/i,
   /\bround\w*/i,
   /\bтень\w*/i,
@@ -84,7 +62,6 @@ const STYLE_PATTERNS: RegExp[] = [
   /\bразмыт\w*/i,
   /\bградиент\w*/i,
   /\bgradient\b/i,
-
   /\bдизайн\w*/i,
   /\bтем(а|у|ы)\b/i,
   /\bстил(ь|ем|я)\w*/i,
@@ -92,9 +69,6 @@ const STYLE_PATTERNS: RegExp[] = [
   /\bкнопк\w*/i,
 ];
 
-/**
- * Сигналы в пользу полного rewrite (структура/контент). Приоритетнее style.
- */
 const STRUCTURAL_PATTERNS: RegExp[] = [
   /\bдобав(ь|и|ить|ление|им)/i,
   /\bвстав(ь|ить|ка|им)/i,
@@ -104,13 +78,11 @@ const STRUCTURAL_PATTERNS: RegExp[] = [
   /\bвыкин(ь|и|уть)/i,
   /\bremove\b/i,
   /\badd\b/i,
-
   /\bсекци\w*/i,
   /\bблок\w*/i,
   /\bsection\b/i,
   /\bbanner\b/i,
   /\bбаннер\w*/i,
-
   /\bперепиш\w*/i,
   /\bпереименуй/i,
   /\bзамени\s+(текст|заголов|слов)/i,
@@ -119,56 +91,15 @@ const STRUCTURAL_PATTERNS: RegExp[] = [
   /\bнапиши\b/i,
   /\bпридумай\w*/i,
   /\bпредложи\w*/i,
-
   /\bперенес(и|ти)/i,
   /\bперестав(ь|ить)/i,
   /\bпоменяй\s+места?/i,
   /\bswap\b/i,
   /\bmove\b/i,
-
   /\bсодерж\w*/i,
   /\bконтент\w*/i,
-  /\bменю\b/i,
   /\bпрайс\w*/i,
-  /\bцен(ы|ам|ник)\w*/i,
 ];
-
-/**
- * Словарь section id → синонимы для извлечения target sections.
- *
- * id должны совпадать с sections из htmlTemplatesCatalog. Ключи — section id,
- * значения — регексы которые срабатывают когда юзер его упоминает.
- */
-const SECTION_SYNONYMS: Record<string, RegExp[]> = {
-  hero: [/\bhero\b/i, /\bгеро[ейя]\w*/i, /\bпервый\s+экран/i, /\bшапк\w*/i],
-  about: [/\babout\b/i, /\bо\s+(нас|себе|компании|студии)/i, /\bпро\s+(нас|компанию)/i],
-  services: [/\bservices?\b/i, /\bуслуг\w*/i, /\bсервис\w*/i],
-  gallery: [/\bgallery\b/i, /\bгалере\w*/i, /\bработ\w*/i, /\bпортфолио\b/i],
-  menu: [/\bmenu\b/i, /\bменю\b/i],
-  pricing: [/\bpricing\b/i, /\bцен(ы|ам|ник)\w*/i, /\bпрайс\w*/i, /\bтариф\w*/i, /\bстоим\w*/i],
-  contact: [/\bcontacts?\b/i, /\bконтакт\w*/i, /\bфутер\b/i, /\bfooter\b/i, /\bподвал\b/i],
-  booking: [/\bbooking\b/i, /\bбронь\b/i, /\bбронирован\w*/i, /\bзапис(ь|и)\b/i],
-  features: [/\bfeatures?\b/i, /\bфичи?\b/i, /\bвозможност\w*/i, /\bпреимуществ\w*/i],
-  testimonials: [/\btestimonials?\b/i, /\bотзыв\w*/i, /\bреценз\w*/i],
-  cta: [/\bcta\b/i, /\bпризыв\w*/i],
-  schedule: [/\bschedule\b/i, /\bрасписан\w*/i, /\bграфик\b/i, /\bпрограмм\w+\s+дн/i],
-  story: [/\bstory\b/i, /\bистори\w*/i],
-  rsvp: [/\brsvp\b/i, /\bподтвержден\w*/i],
-  tracks: [/\btracks?\b/i, /\bтрек\w*/i],
-  events: [/\bevents?\b/i, /\bивент\w*/i, /\bмероприят\w*/i],
-  classes: [/\bclasses?\b/i, /\bзаняти\w*/i, /\bклассы\b/i],
-  instructors: [/\binstructors?\b/i, /\bинструктор\w*/i],
-  doctors: [/\bdoctors?\b/i, /\bврач\w*/i, /\bдокт(о|у)р\w*/i],
-  masters: [/\bmasters?\b/i, /\bмастер\w*/i],
-  programs: [/\bprograms?\b/i, /\bпрограмм\w*/i],
-  "why-us": [/\bwhy[-\s]?us\b/i, /\bпочему\s+мы\b/i],
-  "how-it-works": [/\bhow[-\s]?it[-\s]?works\b/i, /\bкак\s+(работает|это\s+работает|устроено)/i],
-  "order-form": [/\border[-\s]?form\b/i, /\bформ\w+\s+заказ/i, /\bзаказ\w+\s+форм/i],
-  hours: [/\bhours\b/i, /\bчасы\s+работ/i, /\bграфик\s+работ/i],
-  location: [/\blocation\b/i, /\bадрес\b/i, /\bкарт\w*/i, /\bлокаци\w*/i],
-  skills: [/\bskills?\b/i, /\bнавык\w*/i, /\bскилл\w*/i],
-  projects: [/\bprojects?\b/i, /\bпроект\w*/i],
-};
 
 function countMatches(text: string, patterns: RegExp[]): number {
   let count = 0;
@@ -177,22 +108,32 @@ function countMatches(text: string, patterns: RegExp[]): number {
 }
 
 /**
- * Извлекает упомянутые в запросе section ids. Пустой массив — глобальная правка.
+ * Находит упоминание конкретной секции в запросе юзера.
+ * Используется для scope'а CSS-патчей: если вернул "hero", селекторы
+ * обернутся в [data-nit-section="hero"]. null = вся страница.
  */
-export function extractTargetSections(userRequest: string): string[] {
-  const text = userRequest.trim();
-  if (!text) return [];
-
-  const hits = new Set<string>();
-  for (const [id, patterns] of Object.entries(SECTION_SYNONYMS)) {
-    for (const p of patterns) {
-      if (p.test(text)) {
-        hits.add(id);
-        break;
-      }
-    }
+export function detectSectionTarget(text: string): string | null {
+  const t = text.toLowerCase();
+  const rules: Array<[RegExp, string]> = [
+    [/\b(геро[яйе]|шапк[ауие]|первы[йе]\s*экран|верхн[юяейем]\s*част|hero)\b/i, "hero"],
+    [/\b(меню|menu)\b/i, "menu"],
+    [/\b(цен[аынуе]?|тариф\w*|прайс\w*|pricing)\b/i, "pricing"],
+    [/\b(контакт\w*|contact)\b/i, "contact"],
+    [/\b(отзыв\w*|testimonials)\b/i, "testimonials"],
+    [/\b(фич\w*|возможност\w*|преимуществ\w*|features)\b/i, "features"],
+    [/\b(галере[яйеию]|gallery)\b/i, "gallery"],
+    [/\b(о\s+нас|о\s+компании|about)\b/i, "about"],
+    [/\b(cta|призыв\s+к\s+действ\w*)\b/i, "cta"],
+    [/\b(футер\w*|подвал\w*|footer)\b/i, "footer"],
+    [/\b(запис[ьяие]\w*|брониров\w*|booking)\b/i, "booking"],
+    [/\b(услуг[иуахем]?|services)\b/i, "services"],
+    [/\b(команд[ауые]?|мастер\w*|team)\b/i, "team"],
+    [/\b(расписан\w*|расписание|schedule)\b/i, "schedule"],
+  ];
+  for (const [re, id] of rules) {
+    if (re.test(t)) return id;
   }
-  return Array.from(hits);
+  return null;
 }
 
 export function classifyPolishIntent(userRequest: string): ClassificationResult {
@@ -205,15 +146,14 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
       reason: "empty request",
       styleHits: 0,
       structuralHits: 0,
-      targetSections: [],
+      targetSection: null,
     };
   }
 
   const styleHits = countMatches(text, STYLE_PATTERNS);
   const structuralHits = countMatches(text, STRUCTURAL_PATTERNS);
-  const targetSections = extractTargetSections(text);
+  const targetSection = detectSectionTarget(text);
 
-  // Структурные сигналы приоритетнее — даже один отправляет в full_rewrite.
   if (structuralHits >= 1) {
     return {
       intent: "full_rewrite",
@@ -221,7 +161,7 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
       reason: `structural keywords: ${structuralHits}`,
       styleHits,
       structuralHits,
-      targetSections,
+      targetSection,
     };
   }
 
@@ -229,13 +169,12 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
     return {
       intent: "css_patch",
       confidence: styleHits >= 2 ? "high" : "medium",
-      reason:
-        targetSections.length > 0
-          ? `style keywords: ${styleHits}, scoped to ${targetSections.join(", ")}`
-          : `style keywords: ${styleHits}`,
+      reason: targetSection
+        ? `style keywords: ${styleHits}, scoped to ${targetSection}`
+        : `style keywords: ${styleHits}`,
       styleHits,
       structuralHits,
-      targetSections,
+      targetSection,
     };
   }
 
@@ -245,6 +184,6 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
     reason: "no signal, default to safe full rewrite",
     styleHits,
     structuralHits,
-    targetSections,
+    targetSection,
   };
 }

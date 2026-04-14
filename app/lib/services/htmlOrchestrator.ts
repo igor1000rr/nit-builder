@@ -26,6 +26,8 @@ import { logger } from "~/lib/utils/logger";
 import { metrics } from "~/lib/services/metrics";
 import { repairTruncatedHtml } from "~/lib/utils/htmlRepair";
 import { getCachedPlan, setCachedPlan } from "~/lib/services/planCache";
+import { classifyPolishIntent, type PolishIntent } from "~/lib/services/intentClassifier";
+import { applyCssPatch } from "~/lib/services/cssPatch";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -40,6 +42,8 @@ export type PipelineEvent =
   | { type: "template_selected"; templateId: string; templateName: string }
   | { type: "text"; text: string }
   | { type: "step_complete"; html?: string }
+  | { type: "polish_mode"; intent: PolishIntent; reason: string }
+  | { type: "css_patch_applied"; ruleCount: number; css: string }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
@@ -47,28 +51,26 @@ export type OrchestratorOptions = {
   providerOverride?: { modelName?: string };
   /** Принудительно пропустить кеш планов (для отладки и тестов) */
   skipPlanCache?: boolean;
+  /** Принудительный режим polish (обход классификатора) */
+  polishIntent?: PolishIntent;
 };
 
 function stripCodeFences(text: string): string {
   // Если стрим оборвался на stop-sequence "</html>" — добавляем тег обратно.
-  // Stop-sequence сам в выводе не остаётся.
   let working = text;
   if (!/<\/html>/i.test(working) && /<html[\s>]/i.test(working)) {
     working = `${working}\n</html>`;
   }
 
-  // Стратегия 1: если нашли <!DOCTYPE html> и </html> — берём всё между ними.
   const doctypeMatch = working.match(/<!DOCTYPE\s+html[\s\S]*?<\/html>/i);
   let extracted = doctypeMatch?.[0];
 
   if (!extracted) {
-    // Стратегия 2: если DOCTYPE нет, но есть <html>...</html> — берём это.
     const htmlMatch = working.match(/<html[\s\S]*?<\/html>/i);
     extracted = htmlMatch?.[0];
   }
 
   if (!extracted) {
-    // Стратегия 3 (fallback): срезаем markdown fences по старинке.
     extracted = working
       .replace(/^```html\s*/im, "")
       .replace(/^```\s*/m, "")
@@ -76,32 +78,21 @@ function stripCodeFences(text: string): string {
       .trim();
   }
 
-  // Safety net: удаляем LLM-facing маркеры секций, если модель их скопировала.
   const cleaned = extracted
     .replace(/\s*<!--\s*═══\s*SECTION:[^>]*-->\s*/g, "\n")
     .replace(/\s*<!--\s*═══\s*END\s+SECTION\s*═══\s*-->\s*/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // Auto-repair: если LLM обрезал вывод, закрываем незакрытые теги
   return repairTruncatedHtml(cleaned);
 }
 
-/**
- * Получение плана: сначала кеш по нормализованному запросу, потом
- * structured generation (generateObject), потом fallback на свободную
- * генерацию + extractPlanJson + schema validation.
- *
- * Возвращает [plan, isFromCache]. Если все пути упали — синтетический
- * blank-landing план (никогда не throws, чтобы пайплайн дожил до Coder).
- */
 async function obtainPlan(
   model: ReturnType<typeof getModel>,
   sanitizedMessage: string,
   signal: AbortSignal,
   skipCache: boolean,
 ): Promise<{ plan: Plan; cached: boolean }> {
-  // 1. Кеш
   if (!skipCache) {
     const cached = getCachedPlan(sanitizedMessage);
     if (cached) {
@@ -110,7 +101,6 @@ async function obtainPlan(
     }
   }
 
-  // 2. Structured generation (быстрее, надёжнее, минус extract+validate)
   try {
     const { object } = await generateObject({
       model,
@@ -131,7 +121,6 @@ async function obtainPlan(
     );
   }
 
-  // 3. Fallback: generateText + extract + safeParse
   try {
     const { text: planRaw } = await generateText({
       model,
@@ -160,7 +149,6 @@ async function obtainPlan(
     logger.warn(SCOPE, `Fallback generateText failed: ${(genErr as Error).message}`);
   }
 
-  // 4. Synthetic blank-landing план
   const synthetic: Plan = {
     business_type: sanitizedMessage.slice(0, 100) || "универсальный сайт",
     target_audience: "",
@@ -299,8 +287,56 @@ export async function* executeHtmlPolish(
 
   const model = getModel(provider);
   const startMs = Date.now();
-  metrics.generationStarted("polish", provider.id);
+  const sanitizedRequest = sanitizeUserMessage(userRequest);
 
+  // Классификация намерения — эвристика 0ms.
+  const classification = options.polishIntent
+    ? { intent: options.polishIntent, reason: "user override" }
+    : (() => {
+        const c = classifyPolishIntent(sanitizedRequest);
+        return { intent: c.intent, reason: c.reason };
+      })();
+
+  yield { type: "polish_mode", intent: classification.intent, reason: classification.reason };
+
+  // ─── CSS PATCH PATH (дешёвый, ~200 токенов вместо ~6000) ───
+  if (classification.intent === "css_patch") {
+    metrics.generationStarted("polish", provider.id);
+    yield {
+      type: "step_start",
+      roleName: "CSS-Патчер",
+      model: provider.defaultModel,
+      provider: provider.id,
+    };
+
+    try {
+      const result = await applyCssPatch({
+        model,
+        userRequest: sanitizedRequest,
+        currentHtml: memory.currentHtml,
+        signal,
+      });
+
+      memory.currentHtml = result.html;
+      memory.updatedAt = Date.now();
+      updateSessionHtml(memory.sessionId, result.html);
+      metrics.generationCompleted("polish", provider.id, Date.now() - startMs);
+
+      yield { type: "css_patch_applied", ruleCount: result.ruleCount, css: result.css };
+      yield { type: "step_complete", html: result.html };
+      return;
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      logger.warn(
+        SCOPE,
+        `CSS patch failed (${(err as Error).message}), falling back to full rewrite`,
+      );
+      // Грейсфул фолбэк на full rewrite ниже.
+    }
+  }
+
+  // ─── FULL REWRITE PATH ───
+  metrics.generationStarted("polish", provider.id);
   yield {
     type: "step_start",
     roleName: "Полировщик",
@@ -309,7 +345,6 @@ export async function* executeHtmlPolish(
   };
 
   try {
-    const sanitizedRequest = sanitizeUserMessage(userRequest);
     const estimatedInputChars =
       memory.currentHtml.length + sanitizedRequest.length + POLISHER_SYSTEM_PROMPT.length + 200;
     const maxOutput = calcMaxOutput(provider, estimatedInputChars);

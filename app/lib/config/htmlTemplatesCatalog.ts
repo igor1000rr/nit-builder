@@ -262,8 +262,25 @@ export function getFallbackTemplate(): TemplateMeta {
   return TEMPLATE_CATALOG.find((t) => t.id === "blank-landing")!;
 }
 
-export function buildCatalogForPrompt(): string {
-  return TEMPLATE_CATALOG.map(
-    (t) => `- ${t.id}: ${t.name} — ${t.description} (подходит для: ${t.bestFor.join(", ")})`,
-  ).join("\n");
+/**
+ * Построить текстовый каталог для Planner-промпта.
+ *
+ * @param filterIds — если передан, включает только эти id (+ всегда blank-landing).
+ *   Используется для embedding-префильтрации — вместо всех 22 шаблонов
+ *   кладём top-K наиболее релевантных, экономия ~70% токенов планировщика.
+ *   Без аргумента (или с undefined) возвращает полный каталог (legacy поведение).
+ */
+export function buildCatalogForPrompt(filterIds?: string[]): string {
+  const list =
+    filterIds && filterIds.length > 0
+      ? TEMPLATE_CATALOG.filter(
+          (t) => filterIds.includes(t.id) || t.id === "blank-landing",
+        )
+      : TEMPLATE_CATALOG;
+  return list
+    .map(
+      (t) =>
+        `- ${t.id}: ${t.name} — ${t.description} (подходит для: ${t.bestFor.join(", ")})`,
+    )
+    .join("\n");
 }

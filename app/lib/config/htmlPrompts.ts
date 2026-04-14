@@ -5,16 +5,17 @@ import { buildCatalogForPrompt } from "~/lib/config/htmlTemplatesCatalog";
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Стабильный system-промпт планировщика. Не зависит от запроса, кешируется
- * KV-cache в LM Studio навсегда. При использовании generateObject правила
- * "только JSON" не нужны (формат гарантируется sampler-ом), но мы
- * оставляем подсказки для fallback-пути на generateText.
+ * System-промпт планировщика.
+ *
+ * @param candidateIds — опциональный список id шаблонов-кандидатов от retriever-а.
+ *   Если передан — каталог в промпте фильтруется до top-K (+ blank-landing
+ *   всегда). Экономия ~3KB на вызове планировщика. Без аргумента — полный каталог.
  */
-export function buildPlannerSystemPrompt(): string {
+export function buildPlannerSystemPrompt(candidateIds?: string[]): string {
   return `Ты — Планировщик сайтов. Анализируешь запрос пользователя и возвращаешь СТРОГИЙ JSON с планом сайта + выбираешь подходящий шаблон из каталога.
 
 ДОСТУПНЫЕ ШАБЛОНЫ:
-${buildCatalogForPrompt()}
+${buildCatalogForPrompt(candidateIds)}
 
 ПРАВИЛА:
 1. suggested_template_id ОБЯЗАТЕЛЬНО один из id выше. Если не подходит ни один — "blank-landing".
@@ -29,13 +30,8 @@ ${buildCatalogForPrompt()}
 {"business_type":"домашняя кондитерская на заказ","target_audience":"мамы, организаторы праздников, свадьбы","tone":"тёплый, семейный, уютный","style_hints":"пастельные тона, фото десертов, рукописный акцентный шрифт","color_mood":"warm-pastel","sections":["hero","gallery","about","order-form","contact"],"keywords":["торты на заказ","десерты","выпечка","кондитер"],"cta_primary":"Заказать торт","language":"ru","suggested_template_id":"handmade-shop"}`;
 }
 
-/**
- * Полный legacy-промпт планировщика (system + явное требование JSON-only).
- * Используется для backward-compat теста и как fallback когда
- * generateObject недоступен (старые модели без response_format).
- */
-export function buildPlannerPrompt(): string {
-  return `${buildPlannerSystemPrompt()}
+export function buildPlannerPrompt(candidateIds?: string[]): string {
+  return `${buildPlannerSystemPrompt(candidateIds)}
 
 ФОРМАТ ОТВЕТА: ТОЛЬКО JSON-объект. Без markdown, без объяснений до или после.
 
@@ -58,11 +54,6 @@ JSON schema:
 // CODER
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Стабильный system-промпт кодера. НЕ содержит шаблона/плана — это динамика.
- * За счёт стабильности этот блок кешируется в KV-cache LM Studio после
- * первого запроса и переиспользуется на всех последующих.
- */
 export const CODER_SYSTEM_PROMPT = `Ты — HTML-Кодер. Адаптируешь готовый HTML-шаблон под план пользователя.
 
 ЧТО ДЕЛАТЬ:
@@ -99,11 +90,6 @@ ${JSON.stringify(params.plan, null, 2)}
 Адаптируй шаблон под план. Верни готовый HTML.`;
 }
 
-/**
- * Legacy combined-промпт кодера. Используется тестами и в fallback-сценариях
- * когда нужен один system-блок (а не разделение system/user).
- * Новый код использует CODER_SYSTEM_PROMPT + buildCoderUserMessage().
- */
 export function buildCoderPrompt(params: {
   templateHtml: string;
   plan: unknown;

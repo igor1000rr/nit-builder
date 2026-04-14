@@ -28,11 +28,11 @@ import { repairTruncatedHtml } from "~/lib/utils/htmlRepair";
 import { getCachedPlan, setCachedPlan } from "~/lib/services/planCache";
 import { classifyPolishIntent, type PolishIntent } from "~/lib/services/intentClassifier";
 import { applyCssPatch } from "~/lib/services/cssPatch";
+import { retrieveTemplates } from "~/lib/services/templateRetriever";
+import { enrichSectionAnchors } from "~/lib/utils/sectionAnchors";
 
 const SCOPE = "htmlOrchestrator";
 
-// Stop sequences для streamText. Обрезает хвост вида "Готово! Я создал..."
-// после </html> — экономит 50-200 output токенов на каждой генерации.
 const HTML_STOP_SEQUENCES = ["</html>", "```\n\n", "\n```"];
 
 export type PipelineEvent =
@@ -47,16 +47,12 @@ export type PipelineEvent =
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
-  /** Model name override (provider всегда lmstudio — облачные удалены) */
   providerOverride?: { modelName?: string };
-  /** Принудительно пропустить кеш планов (для отладки и тестов) */
   skipPlanCache?: boolean;
-  /** Принудительный режим polish (обход классификатора) */
   polishIntent?: PolishIntent;
 };
 
 function stripCodeFences(text: string): string {
-  // Если стрим оборвался на stop-sequence "</html>" — добавляем тег обратно.
   let working = text;
   if (!/<\/html>/i.test(working) && /<html[\s>]/i.test(working)) {
     working = `${working}\n</html>`;
@@ -84,7 +80,7 @@ function stripCodeFences(text: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  return repairTruncatedHtml(cleaned);
+  return enrichSectionAnchors(repairTruncatedHtml(cleaned));
 }
 
 async function obtainPlan(
@@ -101,11 +97,24 @@ async function obtainPlan(
     }
   }
 
+  // Embedding-префильтр каталога. null → полный каталог (legacy).
+  let candidateIds: string[] | undefined;
+  try {
+    const retrieved = await retrieveTemplates(sanitizedMessage, 5, signal);
+    candidateIds = retrieved ?? undefined;
+    if (candidateIds) {
+      logger.info(SCOPE, `Retriever shortlist: ${candidateIds.join(", ")}`);
+    }
+  } catch (retrieverErr) {
+    if ((retrieverErr as Error).name === "AbortError") throw retrieverErr;
+    // Не критично — трактуем как "без префильтра".
+  }
+
   try {
     const { object } = await generateObject({
       model,
       schema: PlanSchema,
-      system: buildPlannerSystemPrompt(),
+      system: buildPlannerSystemPrompt(candidateIds),
       prompt: sanitizedMessage,
       temperature: 0.3,
       abortSignal: signal,
@@ -124,7 +133,7 @@ async function obtainPlan(
   try {
     const { text: planRaw } = await generateText({
       model,
-      system: buildPlannerPrompt(),
+      system: buildPlannerPrompt(candidateIds),
       prompt: sanitizedMessage,
       maxOutputTokens: 1500,
       temperature: 0.3,
@@ -289,7 +298,6 @@ export async function* executeHtmlPolish(
   const startMs = Date.now();
   const sanitizedRequest = sanitizeUserMessage(userRequest);
 
-  // Классификация намерения — эвристика 0ms.
   const classification = options.polishIntent
     ? { intent: options.polishIntent, reason: "user override" }
     : (() => {
@@ -299,7 +307,6 @@ export async function* executeHtmlPolish(
 
   yield { type: "polish_mode", intent: classification.intent, reason: classification.reason };
 
-  // ─── CSS PATCH PATH (дешёвый, ~200 токенов вместо ~6000) ───
   if (classification.intent === "css_patch") {
     metrics.generationStarted("polish", provider.id);
     yield {
@@ -317,13 +324,14 @@ export async function* executeHtmlPolish(
         signal,
       });
 
-      memory.currentHtml = result.html;
+      const finalHtml = enrichSectionAnchors(result.html);
+      memory.currentHtml = finalHtml;
       memory.updatedAt = Date.now();
-      updateSessionHtml(memory.sessionId, result.html);
+      updateSessionHtml(memory.sessionId, finalHtml);
       metrics.generationCompleted("polish", provider.id, Date.now() - startMs);
 
       yield { type: "css_patch_applied", ruleCount: result.ruleCount, css: result.css };
-      yield { type: "step_complete", html: result.html };
+      yield { type: "step_complete", html: finalHtml };
       return;
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
@@ -331,11 +339,9 @@ export async function* executeHtmlPolish(
         SCOPE,
         `CSS patch failed (${(err as Error).message}), falling back to full rewrite`,
       );
-      // Грейсфул фолбэк на full rewrite ниже.
     }
   }
 
-  // ─── FULL REWRITE PATH ───
   metrics.generationStarted("polish", provider.id);
   yield {
     type: "step_start",

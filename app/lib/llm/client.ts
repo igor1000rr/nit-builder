@@ -64,6 +64,29 @@ export function calcMaxOutput(provider: ProviderConfig, estimatedInputChars: num
 }
 
 /**
+ * Точный расчёт max output для Coder-стадии.
+ *
+ * Эмпирически выход ≈ 1.3× от размера шаблона (тексты переведены/расширены,
+ * структура сохранена). Хардкод 16000 раздувал бюджет на коротких шаблонах
+ * и провоцировал модель "дофантазировать" лишние секции.
+ */
+export function calcCoderMaxOutput(
+  provider: ProviderConfig,
+  templateChars: number,
+  planChars: number,
+  systemChars: number = 2000,
+): number {
+  const inputChars = templateChars + planChars + systemChars;
+  const inputTokens = Math.ceil(inputChars / 3.5);
+  const desiredOutput = Math.ceil((templateChars * 1.3) / 3.5) + 500;
+  const available = provider.contextWindow - inputTokens - 300;
+  const cap = Math.min(desiredOutput, available);
+  // Floor 2000 — даже на крошечных шаблонах модели нужен минимум для манёвра.
+  // Ceil 16000 — выше уже бессмысленно, скорее всего модель зациклилась.
+  return Math.max(2000, Math.min(16_000, cap));
+}
+
+/**
  * Проверка переполнения контекстного окна.
  * Возвращает предупреждение если input + желаемый output не помещаются.
  */

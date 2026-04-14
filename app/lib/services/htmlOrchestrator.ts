@@ -1,28 +1,42 @@
-import { streamText, generateText } from "ai";
+import { streamText, generateText, generateObject } from "ai";
 import { PlanSchema, extractPlanJson, type Plan } from "~/lib/utils/planSchema";
 import {
+  buildPlannerSystemPrompt,
   buildPlannerPrompt,
-  buildCoderPrompt,
-  buildPolisherPrompt,
+  CODER_SYSTEM_PROMPT,
+  buildCoderUserMessage,
+  POLISHER_SYSTEM_PROMPT,
+  buildPolisherUserMessage,
 } from "~/lib/config/htmlPrompts";
 import {
   getTemplateById,
   getFallbackTemplate,
 } from "~/lib/config/htmlTemplatesCatalog";
 import { loadTemplateHtmlForLlm } from "~/lib/config/htmlTemplates.server";
-import { getPreferredProvider, getModel, calcMaxOutput, checkContextBudget } from "~/lib/llm/client";
+import {
+  getPreferredProvider,
+  getModel,
+  calcMaxOutput,
+  calcCoderMaxOutput,
+  checkContextBudget,
+} from "~/lib/llm/client";
 import { sanitizeUserMessage } from "~/lib/utils/promptSanitizer";
 import { updateSessionHtml, type SessionMemory } from "~/lib/services/sessionMemory";
 import { logger } from "~/lib/utils/logger";
 import { metrics } from "~/lib/services/metrics";
 import { repairTruncatedHtml } from "~/lib/utils/htmlRepair";
+import { getCachedPlan, setCachedPlan } from "~/lib/services/planCache";
 
 const SCOPE = "htmlOrchestrator";
+
+// Stop sequences для streamText. Обрезает хвост вида "Готово! Я создал..."
+// после </html> — экономит 50-200 output токенов на каждой генерации.
+const HTML_STOP_SEQUENCES = ["</html>", "```\n\n", "\n```"];
 
 export type PipelineEvent =
   | { type: "session_init"; sessionId: string }
   | { type: "step_start"; roleName: string; model: string; provider: string }
-  | { type: "plan_ready"; plan: Plan }
+  | { type: "plan_ready"; plan: Plan; cached?: boolean }
   | { type: "template_selected"; templateId: string; templateName: string }
   | { type: "text"; text: string }
   | { type: "step_complete"; html?: string }
@@ -31,23 +45,31 @@ export type PipelineEvent =
 export type OrchestratorOptions = {
   /** Model name override (provider всегда lmstudio — облачные удалены) */
   providerOverride?: { modelName?: string };
+  /** Принудительно пропустить кеш планов (для отладки и тестов) */
+  skipPlanCache?: boolean;
 };
 
 function stripCodeFences(text: string): string {
+  // Если стрим оборвался на stop-sequence "</html>" — добавляем тег обратно.
+  // Stop-sequence сам в выводе не остаётся.
+  let working = text;
+  if (!/<\/html>/i.test(working) && /<html[\s>]/i.test(working)) {
+    working = `${working}\n</html>`;
+  }
+
   // Стратегия 1: если нашли <!DOCTYPE html> и </html> — берём всё между ними.
-  // Это работает даже если LLM добавила префикс "Вот HTML:" или постфикс.
-  const doctypeMatch = text.match(/<!DOCTYPE\s+html[\s\S]*?<\/html>/i);
+  const doctypeMatch = working.match(/<!DOCTYPE\s+html[\s\S]*?<\/html>/i);
   let extracted = doctypeMatch?.[0];
 
   if (!extracted) {
     // Стратегия 2: если DOCTYPE нет, но есть <html>...</html> — берём это.
-    const htmlMatch = text.match(/<html[\s\S]*?<\/html>/i);
+    const htmlMatch = working.match(/<html[\s\S]*?<\/html>/i);
     extracted = htmlMatch?.[0];
   }
 
   if (!extracted) {
     // Стратегия 3 (fallback): срезаем markdown fences по старинке.
-    extracted = text
+    extracted = working
       .replace(/^```html\s*/im, "")
       .replace(/^```\s*/m, "")
       .replace(/```\s*$/m, "")
@@ -61,8 +83,97 @@ function stripCodeFences(text: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // Auto-repair: если LLM обрезал вывод (max_tokens), закрываем незакрытые теги
+  // Auto-repair: если LLM обрезал вывод, закрываем незакрытые теги
   return repairTruncatedHtml(cleaned);
+}
+
+/**
+ * Получение плана: сначала кеш по нормализованному запросу, потом
+ * structured generation (generateObject), потом fallback на свободную
+ * генерацию + extractPlanJson + schema validation.
+ *
+ * Возвращает [plan, isFromCache]. Если все пути упали — синтетический
+ * blank-landing план (никогда не throws, чтобы пайплайн дожил до Coder).
+ */
+async function obtainPlan(
+  model: ReturnType<typeof getModel>,
+  sanitizedMessage: string,
+  signal: AbortSignal,
+  skipCache: boolean,
+): Promise<{ plan: Plan; cached: boolean }> {
+  // 1. Кеш
+  if (!skipCache) {
+    const cached = getCachedPlan(sanitizedMessage);
+    if (cached) {
+      logger.info(SCOPE, `Plan cache hit for: ${sanitizedMessage.slice(0, 60)}`);
+      return { plan: cached, cached: true };
+    }
+  }
+
+  // 2. Structured generation (быстрее, надёжнее, минус extract+validate)
+  try {
+    const { object } = await generateObject({
+      model,
+      schema: PlanSchema,
+      system: buildPlannerSystemPrompt(),
+      prompt: sanitizedMessage,
+      temperature: 0.3,
+      abortSignal: signal,
+      maxOutputTokens: 1500,
+    });
+    setCachedPlan(sanitizedMessage, object);
+    return { plan: object, cached: false };
+  } catch (structErr) {
+    if ((structErr as Error).name === "AbortError") throw structErr;
+    logger.warn(
+      SCOPE,
+      `generateObject failed (${(structErr as Error).message}), fallback to generateText`,
+    );
+  }
+
+  // 3. Fallback: generateText + extract + safeParse
+  try {
+    const { text: planRaw } = await generateText({
+      model,
+      system: buildPlannerPrompt(),
+      prompt: sanitizedMessage,
+      maxOutputTokens: 1500,
+      temperature: 0.3,
+      abortSignal: signal,
+    });
+
+    let rawJson: unknown = null;
+    try {
+      rawJson = extractPlanJson(planRaw);
+    } catch (parseErr) {
+      logger.warn(SCOPE, `Plan JSON extract failed: ${(parseErr as Error).message}`);
+    }
+
+    const parsed = rawJson !== null ? PlanSchema.safeParse(rawJson) : null;
+    if (parsed?.success) {
+      setCachedPlan(sanitizedMessage, parsed.data);
+      return { plan: parsed.data, cached: false };
+    }
+    logger.warn(SCOPE, "Plan schema validation failed, using fallback plan");
+  } catch (genErr) {
+    if ((genErr as Error).name === "AbortError") throw genErr;
+    logger.warn(SCOPE, `Fallback generateText failed: ${(genErr as Error).message}`);
+  }
+
+  // 4. Synthetic blank-landing план
+  const synthetic: Plan = {
+    business_type: sanitizedMessage.slice(0, 100) || "универсальный сайт",
+    target_audience: "",
+    tone: "профессиональный",
+    style_hints: "",
+    color_mood: "light-minimal",
+    sections: ["hero", "about", "features", "contact"],
+    keywords: [],
+    cta_primary: "Связаться",
+    language: "ru",
+    suggested_template_id: "blank-landing",
+  };
+  return { plan: synthetic, cached: false };
 }
 
 export async function* executeHtmlSimple(
@@ -93,46 +204,13 @@ export async function* executeHtmlSimple(
   };
 
   let plan: Plan;
+  let planCached = false;
   try {
-    const { text: planRaw } = await generateText({
-      model,
-      system: buildPlannerPrompt(),
-      prompt: sanitized,
-      maxOutputTokens: 1500,
-      temperature: 0.3,
-      abortSignal: signal,
-    });
-
-    // Двухуровневый fallback: JSON extraction + schema validation.
-    // Обе ошибки ведут в fallback-план, а не падают — модель может выдать что угодно.
-    let rawJson: unknown = null;
-    try {
-      rawJson = extractPlanJson(planRaw);
-    } catch (parseErr) {
-      logger.warn(SCOPE, `Plan JSON extract failed: ${(parseErr as Error).message}`);
-    }
-
-    const parsed = rawJson !== null ? PlanSchema.safeParse(rawJson) : null;
-    if (!parsed || !parsed.success) {
-      if (parsed) logger.warn(SCOPE, "Plan schema validation failed, using fallback");
-      plan = {
-        business_type: sanitized.slice(0, 100),
-        target_audience: "",
-        tone: "профессиональный",
-        style_hints: "",
-        color_mood: "light-minimal",
-        sections: ["hero", "about", "features", "contact"],
-        keywords: [],
-        cta_primary: "Связаться",
-        language: "ru",
-        suggested_template_id: "blank-landing",
-      };
-    } else {
-      plan = parsed.data;
-    }
-
+    const obtained = await obtainPlan(model, sanitized, signal, options.skipPlanCache ?? false);
+    plan = obtained.plan;
+    planCached = obtained.cached;
     memory.planJson = plan;
-    yield { type: "plan_ready", plan };
+    yield { type: "plan_ready", plan, cached: planCached };
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
     metrics.generationFailed("create", "planner_error");
@@ -155,24 +233,31 @@ export async function* executeHtmlSimple(
   };
 
   try {
-    const estimatedInput = templateHtml.length + JSON.stringify(plan).length + 2000;
-    const budget = checkContextBudget(provider, estimatedInput, 8000);
-    if (budget.warning) {
-      logger.warn(SCOPE, budget.warning);
-    }
+    const planJsonStr = JSON.stringify(plan);
+    const estimatedInputChars =
+      templateHtml.length + planJsonStr.length + CODER_SYSTEM_PROMPT.length + 200;
+    const budget = checkContextBudget(provider, estimatedInputChars, 8000);
+    if (budget.warning) logger.warn(SCOPE, budget.warning);
     if (!budget.ok) {
       metrics.generationFailed("create", "context_overflow");
       yield { type: "error", message: budget.warning ?? "Context overflow" };
       return;
     }
-    const maxOutput = calcMaxOutput(provider, estimatedInput);
+
+    const maxOutput = calcCoderMaxOutput(
+      provider,
+      templateHtml.length,
+      planJsonStr.length,
+      CODER_SYSTEM_PROMPT.length,
+    );
 
     const result = await streamText({
       model,
-      system: buildCoderPrompt({ templateHtml, plan }),
-      prompt: "Адаптируй шаблон под план. Верни готовый HTML.",
+      system: CODER_SYSTEM_PROMPT,
+      prompt: buildCoderUserMessage({ templateHtml, plan }),
       maxOutputTokens: maxOutput,
       temperature: 0.4,
+      stopSequences: HTML_STOP_SEQUENCES,
       abortSignal: signal,
     });
 
@@ -183,7 +268,6 @@ export async function* executeHtmlSimple(
     }
 
     fullHtml = stripCodeFences(fullHtml);
-    // Update both local reference (for tests) and global session cache (for production)
     memory.currentHtml = fullHtml;
     memory.updatedAt = Date.now();
     updateSessionHtml(memory.sessionId, fullHtml);
@@ -225,18 +309,21 @@ export async function* executeHtmlPolish(
   };
 
   try {
-    const estimatedInput = memory.currentHtml.length + userRequest.length + 1000;
-    const maxOutput = calcMaxOutput(provider, estimatedInput);
+    const sanitizedRequest = sanitizeUserMessage(userRequest);
+    const estimatedInputChars =
+      memory.currentHtml.length + sanitizedRequest.length + POLISHER_SYSTEM_PROMPT.length + 200;
+    const maxOutput = calcMaxOutput(provider, estimatedInputChars);
 
     const result = await streamText({
       model,
-      system: buildPolisherPrompt({
+      system: POLISHER_SYSTEM_PROMPT,
+      prompt: buildPolisherUserMessage({
         currentHtml: memory.currentHtml,
-        userRequest: sanitizeUserMessage(userRequest),
+        userRequest: sanitizedRequest,
       }),
-      prompt: userRequest,
       maxOutputTokens: maxOutput,
       temperature: 0.3,
+      stopSequences: HTML_STOP_SEQUENCES,
       abortSignal: signal,
     });
 

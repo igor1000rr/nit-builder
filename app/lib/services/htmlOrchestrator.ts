@@ -30,6 +30,7 @@ import { classifyPolishIntent, type PolishIntent } from "~/lib/services/intentCl
 import { applyCssPatch } from "~/lib/services/cssPatch";
 import { retrieveTemplates } from "~/lib/services/templateRetriever";
 import { enrichSectionAnchors } from "~/lib/utils/sectionAnchors";
+import { recordGeneration } from "~/lib/services/feedbackStore";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -55,7 +56,6 @@ export type OrchestratorOptions = {
   providerOverride?: { modelName?: string };
   skipPlanCache?: boolean;
   polishIntent?: PolishIntent;
-  /** Принудительно указать секцию для scope (обход классификатора) */
   targetSection?: string;
 };
 
@@ -125,7 +125,7 @@ async function obtainPlan(
       prompt: sanitizedMessage,
       temperature: 0.3,
       abortSignal: signal,
-      maxOutputTokens: 1500,
+      maxOutputTokens: 2500,
     });
     setCachedPlan(sanitizedMessage, object);
     return { plan: object, cached: false };
@@ -142,7 +142,7 @@ async function obtainPlan(
       model,
       system: buildPlannerPrompt(candidateIds),
       prompt: sanitizedMessage,
-      maxOutputTokens: 1500,
+      maxOutputTokens: 2500,
       temperature: 0.3,
       abortSignal: signal,
     });
@@ -200,6 +200,10 @@ export async function* executeHtmlSimple(
   const startMs = Date.now();
   metrics.generationStarted("create", provider.id);
 
+  let currentPlan: Plan | undefined;
+  let currentTemplateId: string | undefined;
+  let planCachedFlag = false;
+
   yield {
     type: "step_start",
     roleName: "Планировщик",
@@ -207,24 +211,33 @@ export async function* executeHtmlSimple(
     provider: provider.id,
   };
 
-  let plan: Plan;
-  let planCached = false;
   try {
     const obtained = await obtainPlan(model, sanitized, signal, options.skipPlanCache ?? false);
-    plan = obtained.plan;
-    planCached = obtained.cached;
-    memory.planJson = plan;
-    yield { type: "plan_ready", plan, cached: planCached };
+    currentPlan = obtained.plan;
+    planCachedFlag = obtained.cached;
+    memory.planJson = obtained.plan;
+    yield { type: "plan_ready", plan: obtained.plan, cached: obtained.cached };
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
     metrics.generationFailed("create", "planner_error");
+    recordGeneration({
+      sessionId: memory.sessionId,
+      mode: "create",
+      outcome: "error",
+      provider: provider.id,
+      model: provider.defaultModel,
+      durationMs: Date.now() - startMs,
+      userMessage: sanitized,
+      errorReason: `planner: ${(err as Error).message}`,
+    });
     yield { type: "error", message: `Ошибка планировщика: ${(err as Error).message}` };
     return;
   }
 
-  const template = getTemplateById(plan.suggested_template_id) ?? getFallbackTemplate();
+  const template = getTemplateById(currentPlan.suggested_template_id) ?? getFallbackTemplate();
   const templateHtml = loadTemplateHtmlForLlm(template.id);
   memory.templateId = template.id;
+  currentTemplateId = template.id;
 
   yield { type: "template_selected", templateId: template.id, templateName: template.name };
   metrics.templateSelected(template.id);
@@ -237,13 +250,26 @@ export async function* executeHtmlSimple(
   };
 
   try {
-    const planJsonStr = JSON.stringify(plan);
+    const planJsonStr = JSON.stringify(currentPlan);
     const estimatedInputChars =
       templateHtml.length + planJsonStr.length + CODER_SYSTEM_PROMPT.length + 200;
     const budget = checkContextBudget(provider, estimatedInputChars, 8000);
     if (budget.warning) logger.warn(SCOPE, budget.warning);
     if (!budget.ok) {
       metrics.generationFailed("create", "context_overflow");
+      recordGeneration({
+        sessionId: memory.sessionId,
+        mode: "create",
+        outcome: "error",
+        provider: provider.id,
+        model: provider.defaultModel,
+        durationMs: Date.now() - startMs,
+        userMessage: sanitized,
+        plan: currentPlan,
+        templateId: currentTemplateId,
+        planCached: planCachedFlag,
+        errorReason: "context_overflow",
+      });
       yield { type: "error", message: budget.warning ?? "Context overflow" };
       return;
     }
@@ -258,7 +284,7 @@ export async function* executeHtmlSimple(
     const result = await streamText({
       model,
       system: CODER_SYSTEM_PROMPT,
-      prompt: buildCoderUserMessage({ templateHtml, plan }),
+      prompt: buildCoderUserMessage({ templateHtml, plan: currentPlan }),
       maxOutputTokens: maxOutput,
       temperature: 0.4,
       stopSequences: HTML_STOP_SEQUENCES,
@@ -275,11 +301,37 @@ export async function* executeHtmlSimple(
     memory.currentHtml = fullHtml;
     memory.updatedAt = Date.now();
     updateSessionHtml(memory.sessionId, fullHtml);
-    metrics.generationCompleted("create", provider.id, Date.now() - startMs);
+    const totalMs = Date.now() - startMs;
+    metrics.generationCompleted("create", provider.id, totalMs);
+    recordGeneration({
+      sessionId: memory.sessionId,
+      mode: "create",
+      outcome: "success",
+      provider: provider.id,
+      model: provider.defaultModel,
+      durationMs: totalMs,
+      userMessage: sanitized,
+      plan: currentPlan,
+      templateId: currentTemplateId,
+      planCached: planCachedFlag,
+    });
     yield { type: "step_complete", html: fullHtml };
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
     metrics.generationFailed("create", "coder_error");
+    recordGeneration({
+      sessionId: memory.sessionId,
+      mode: "create",
+      outcome: "error",
+      provider: provider.id,
+      model: provider.defaultModel,
+      durationMs: Date.now() - startMs,
+      userMessage: sanitized,
+      plan: currentPlan,
+      templateId: currentTemplateId,
+      planCached: planCachedFlag,
+      errorReason: `coder: ${(err as Error).message}`,
+    });
     yield { type: "error", message: `Ошибка кодера: ${(err as Error).message}` };
   }
 }
@@ -308,9 +360,7 @@ export async function* executeHtmlPolish(
   const classification = classifyPolishIntent(sanitizedRequest);
   const intent = options.polishIntent ?? classification.intent;
   const targetSection = options.targetSection ?? classification.targetSection;
-  const reason = options.polishIntent
-    ? "user override"
-    : classification.reason;
+  const reason = options.polishIntent ? "user override" : classification.reason;
 
   metrics.polishIntent(intent, Boolean(targetSection));
   if (targetSection) metrics.polishSectionTarget(targetSection);
@@ -341,7 +391,21 @@ export async function* executeHtmlPolish(
       memory.currentHtml = finalHtml;
       memory.updatedAt = Date.now();
       updateSessionHtml(memory.sessionId, finalHtml);
-      metrics.generationCompleted("polish", provider.id, Date.now() - startMs);
+      const totalMs = Date.now() - startMs;
+      metrics.generationCompleted("polish", provider.id, totalMs);
+      recordGeneration({
+        sessionId: memory.sessionId,
+        mode: "polish",
+        outcome: "success",
+        provider: provider.id,
+        model: provider.defaultModel,
+        durationMs: totalMs,
+        userMessage: sanitizedRequest,
+        templateId: memory.templateId,
+        polishIntent: "css_patch",
+        polishTargetSection: targetSection,
+        cssPatchRuleCount: result.ruleCount,
+      });
 
       yield {
         type: "css_patch_applied",
@@ -353,8 +417,7 @@ export async function* executeHtmlPolish(
       return;
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
-      const reasonCode =
-        (err as Error).name === "ZodError" ? "schema" : "generation";
+      const reasonCode = (err as Error).name === "ZodError" ? "schema" : "generation";
       metrics.cssPatchFallback(reasonCode);
       logger.warn(
         SCOPE,
@@ -399,11 +462,39 @@ export async function* executeHtmlPolish(
     memory.currentHtml = fullHtml;
     memory.updatedAt = Date.now();
     updateSessionHtml(memory.sessionId, fullHtml);
-    metrics.generationCompleted("polish", provider.id, Date.now() - startMs);
+    const totalMs = Date.now() - startMs;
+    metrics.generationCompleted("polish", provider.id, totalMs);
+    recordGeneration({
+      sessionId: memory.sessionId,
+      mode: "polish",
+      outcome: "success",
+      provider: provider.id,
+      model: provider.defaultModel,
+      durationMs: totalMs,
+      userMessage: sanitizedRequest,
+      templateId: memory.templateId,
+      polishIntent: "full_rewrite",
+      polishTargetSection: targetSection,
+    });
     yield { type: "step_complete", html: fullHtml };
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
     metrics.generationFailed("polish", "polisher_error");
+    recordGeneration({
+      sessionId: memory.sessionId,
+      mode: "polish",
+      outcome: "error",
+      provider: provider.id,
+      model: provider.defaultModel,
+      durationMs: Date.now() - startMs,
+      userMessage: sanitizedRequest,
+      templateId: memory.templateId,
+      polishIntent: intent,
+      polishTargetSection: targetSection,
+      errorReason: `polisher: ${(err as Error).message}`,
+    });
     yield { type: "error", message: `Ошибка полировщика: ${(err as Error).message}` };
   }
+  // Не допускаем неиспользуемого reason-flag
+  void reason;
 }

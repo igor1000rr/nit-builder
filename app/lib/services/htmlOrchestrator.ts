@@ -42,16 +42,21 @@ export type PipelineEvent =
   | { type: "template_selected"; templateId: string; templateName: string }
   | { type: "text"; text: string }
   | { type: "step_complete"; html?: string }
-  | { type: "polish_mode"; intent: PolishIntent; reason: string; targetSection?: string | null }
-  | { type: "css_patch_applied"; ruleCount: number; css: string; targetSection?: string | null; scope?: string | null }
+  | {
+      type: "polish_mode";
+      intent: PolishIntent;
+      reason: string;
+      targetSection?: string;
+    }
+  | { type: "css_patch_applied"; ruleCount: number; css: string; scoped: boolean }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
   providerOverride?: { modelName?: string };
   skipPlanCache?: boolean;
   polishIntent?: PolishIntent;
-  /** Принудительный targetSection (обход detectSectionTarget) */
-  targetSection?: string | null;
+  /** Принудительно указать секцию для scope (обход классификатора) */
+  targetSection?: string;
 };
 
 function stripCodeFences(text: string): string {
@@ -95,8 +100,10 @@ async function obtainPlan(
     const cached = getCachedPlan(sanitizedMessage);
     if (cached) {
       logger.info(SCOPE, `Plan cache hit for: ${sanitizedMessage.slice(0, 60)}`);
+      metrics.planCacheHit();
       return { plan: cached, cached: true };
     }
+    metrics.planCacheMiss();
   }
 
   let candidateIds: string[] | undefined;
@@ -298,28 +305,23 @@ export async function* executeHtmlPolish(
   const startMs = Date.now();
   const sanitizedRequest = sanitizeUserMessage(userRequest);
 
-  const classification = (() => {
-    const c = classifyPolishIntent(sanitizedRequest);
-    return {
-      intent: options.polishIntent ?? c.intent,
-      reason: options.polishIntent ? "user override" : c.reason,
-      targetSection:
-        options.targetSection !== undefined ? options.targetSection : c.targetSection,
-    };
-  })();
+  const classification = classifyPolishIntent(sanitizedRequest);
+  const intent = options.polishIntent ?? classification.intent;
+  const targetSection = options.targetSection ?? classification.targetSection;
+  const reason = options.polishIntent
+    ? "user override"
+    : classification.reason;
 
-  yield {
-    type: "polish_mode",
-    intent: classification.intent,
-    reason: classification.reason,
-    targetSection: classification.targetSection ?? null,
-  };
+  metrics.polishIntent(intent, Boolean(targetSection));
+  if (targetSection) metrics.polishSectionTarget(targetSection);
 
-  if (classification.intent === "css_patch") {
+  yield { type: "polish_mode", intent, reason, targetSection };
+
+  if (intent === "css_patch") {
     metrics.generationStarted("polish", provider.id);
     yield {
       type: "step_start",
-      roleName: classification.targetSection ? `CSS-Патчер (${classification.targetSection})` : "CSS-Патчер",
+      roleName: targetSection ? `CSS-Патчер (${targetSection})` : "CSS-Патчер",
       model: provider.defaultModel,
       provider: provider.id,
     };
@@ -329,9 +331,11 @@ export async function* executeHtmlPolish(
         model,
         userRequest: sanitizedRequest,
         currentHtml: memory.currentHtml,
-        targetSection: classification.targetSection ?? null,
+        targetSection,
         signal,
       });
+
+      metrics.patchRulesGenerated(result.ruleCount);
 
       const finalHtml = enrichSectionAnchors(result.html);
       memory.currentHtml = finalHtml;
@@ -343,13 +347,15 @@ export async function* executeHtmlPolish(
         type: "css_patch_applied",
         ruleCount: result.ruleCount,
         css: result.css,
-        targetSection: classification.targetSection ?? null,
-        scope: result.scope,
+        scoped: result.scoped,
       };
       yield { type: "step_complete", html: finalHtml };
       return;
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
+      const reasonCode =
+        (err as Error).name === "ZodError" ? "schema" : "generation";
+      metrics.cssPatchFallback(reasonCode);
       logger.warn(
         SCOPE,
         `CSS patch failed (${(err as Error).message}), falling back to full rewrite`,

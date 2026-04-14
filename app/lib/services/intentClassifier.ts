@@ -1,5 +1,13 @@
 /**
- * Классификатор намерений для Polisher + детектор целевой секции.
+ * Классификатор намерений для Polisher + извлечение целевой секции.
+ *
+ * Задача 1: определить можно ли обработать запрос дешёвым CSS-патчем
+ * или нужен полный rewrite.
+ * Задача 2: если правка адресована конкретной секции ("сделай героя синим"),
+ * извлечь её каноническое id (hero/menu/pricing/etc) и скопировать CSS-селекторы
+ * в [data-nit-section="X"] (атрибуты проставлены enrichSectionAnchors).
+ *
+ * Эвристика работает 0ms и покрывает ~80% типовых запросов.
  */
 
 export type PolishIntent = "css_patch" | "full_rewrite";
@@ -10,8 +18,8 @@ export type ClassificationResult = {
   reason: string;
   styleHits: number;
   structuralHits: number;
-  /** id секции если юзер упомянул конкретную (герой, меню, цены, etc) */
-  targetSection: string | null;
+  /** Каноническое id секции если правка адресована конкретной секции. */
+  targetSection?: string;
 };
 
 const STYLE_PATTERNS: RegExp[] = [
@@ -101,6 +109,92 @@ const STRUCTURAL_PATTERNS: RegExp[] = [
   /\bпрайс\w*/i,
 ];
 
+/**
+ * Алиасы русских/английских слов для канонических section id.
+ *
+ * Порядок важен — сначала более специфичные паттерны ("фотографии в галерее"),
+ * потом более общие ("галерея").
+ *
+ * Используются только канонические id из sections в Plan schema (hero, menu, services, etc).
+ */
+const SECTION_ALIASES: Array<[RegExp, string]> = [
+  // Hero / главный экран
+  [/\bгеро(й|я|е|ем)\b/i, "hero"],
+  [/\bглавн(ый|ые)\s+(экран|блок|экране)/i, "hero"],
+  [/\bшап(ка|ку|ке|очк)/i, "hero"],
+  [/\bверхний\s+блок/i, "hero"],
+  [/\bhero\b/i, "hero"],
+  [/\bheader\b/i, "hero"],
+
+  // Menu
+  [/\bменю\b/i, "menu"],
+  [/\bmenu\b/i, "menu"],
+
+  // Pricing (раньше services — у "цен" специфичнее)
+  [/\bпрайс\w*/i, "pricing"],
+  [/\bцен(ы|ах|е|ник|ами|ником|у)\b/i, "pricing"],
+  [/\bтариф\w*/i, "pricing"],
+  [/\bpricing\b/i, "pricing"],
+
+  // Gallery
+  [/\bгалере\w*/i, "gallery"],
+  [/\bработы\b/i, "gallery"],
+  [/\bgallery\b/i, "gallery"],
+
+  // Contact
+  [/\bконтакт\w*/i, "contact"],
+  [/\bcontact\b/i, "contact"],
+
+  // Booking
+  [/\bзапис(и|ь|ю)/i, "booking"],
+  [/\bброн(ь|и|ировани)/i, "booking"],
+  [/\bbooking\b/i, "booking"],
+
+  // Testimonials
+  [/\bотзыв\w*/i, "testimonials"],
+  [/\btestimonials\b/i, "testimonials"],
+
+  // Features
+  [/\bфич\w*/i, "features"],
+  [/\bвозможност\w*/i, "features"],
+  [/\bfeatures\b/i, "features"],
+
+  // Services
+  [/\bуслуг\w*/i, "services"],
+  [/\bservices\b/i, "services"],
+
+  // About
+  [/\bо\s+нас\b/i, "about"],
+  [/\bо\s+компани/i, "about"],
+  [/\bо\s+себ\w*/i, "about"],
+  [/\bо\s+проект/i, "about"],
+  [/\babout\b/i, "about"],
+
+  // Team / masters / doctors
+  [/\bкоманд\w*/i, "team"],
+  [/\bмастер\w*/i, "masters"],
+  [/\bврач\w*/i, "doctors"],
+  [/\bteam\b/i, "team"],
+
+  // Schedule
+  [/\bрасписан\w*/i, "schedule"],
+  [/\bschedule\b/i, "schedule"],
+
+  // Footer
+  [/\bфутер/i, "footer"],
+  [/\bподвал/i, "footer"],
+  [/\bнижний\s+блок/i, "footer"],
+  [/\bfooter\b/i, "footer"],
+
+  // CTA
+  [/\bкнопка\s+(действия|призыва)/i, "cta"],
+  [/\bcta\b/i, "cta"],
+
+  // Order form
+  [/\bформ(а|у)\s+заказ/i, "order-form"],
+  [/\bзаказать\s+(торт|товар)/i, "order-form"],
+];
+
 function countMatches(text: string, patterns: RegExp[]): number {
   let count = 0;
   for (const p of patterns) if (p.test(text)) count++;
@@ -108,32 +202,14 @@ function countMatches(text: string, patterns: RegExp[]): number {
 }
 
 /**
- * Находит упоминание конкретной секции в запросе юзера.
- * Используется для scope'а CSS-патчей: если вернул "hero", селекторы
- * обернутся в [data-nit-section="hero"]. null = вся страница.
+ * Извлечь каноническое id секции из запроса пользователя.
+ * Возвращает первое совпадение в порядке специфичности.
  */
-export function detectSectionTarget(text: string): string | null {
-  const t = text.toLowerCase();
-  const rules: Array<[RegExp, string]> = [
-    [/\b(геро[яйе]|шапк[ауие]|первы[йе]\s*экран|верхн[юяейем]\s*част|hero)\b/i, "hero"],
-    [/\b(меню|menu)\b/i, "menu"],
-    [/\b(цен[аынуе]?|тариф\w*|прайс\w*|pricing)\b/i, "pricing"],
-    [/\b(контакт\w*|contact)\b/i, "contact"],
-    [/\b(отзыв\w*|testimonials)\b/i, "testimonials"],
-    [/\b(фич\w*|возможност\w*|преимуществ\w*|features)\b/i, "features"],
-    [/\b(галере[яйеию]|gallery)\b/i, "gallery"],
-    [/\b(о\s+нас|о\s+компании|about)\b/i, "about"],
-    [/\b(cta|призыв\s+к\s+действ\w*)\b/i, "cta"],
-    [/\b(футер\w*|подвал\w*|footer)\b/i, "footer"],
-    [/\b(запис[ьяие]\w*|брониров\w*|booking)\b/i, "booking"],
-    [/\b(услуг[иуахем]?|services)\b/i, "services"],
-    [/\b(команд[ауые]?|мастер\w*|team)\b/i, "team"],
-    [/\b(расписан\w*|расписание|schedule)\b/i, "schedule"],
-  ];
-  for (const [re, id] of rules) {
-    if (re.test(t)) return id;
+export function extractTargetSection(text: string): string | undefined {
+  for (const [re, section] of SECTION_ALIASES) {
+    if (re.test(text)) return section;
   }
-  return null;
+  return undefined;
 }
 
 export function classifyPolishIntent(userRequest: string): ClassificationResult {
@@ -146,13 +222,12 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
       reason: "empty request",
       styleHits: 0,
       structuralHits: 0,
-      targetSection: null,
     };
   }
 
   const styleHits = countMatches(text, STYLE_PATTERNS);
   const structuralHits = countMatches(text, STRUCTURAL_PATTERNS);
-  const targetSection = detectSectionTarget(text);
+  const targetSection = extractTargetSection(text);
 
   if (structuralHits >= 1) {
     return {
@@ -169,9 +244,7 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
     return {
       intent: "css_patch",
       confidence: styleHits >= 2 ? "high" : "medium",
-      reason: targetSection
-        ? `style keywords: ${styleHits}, scoped to ${targetSection}`
-        : `style keywords: ${styleHits}`,
+      reason: `style keywords: ${styleHits}${targetSection ? ` + section: ${targetSection}` : ""}`,
       styleHits,
       structuralHits,
       targetSection,

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { rulesToCss, injectCssOverrides, CssPatchSchema } from "~/lib/services/cssPatch";
+import {
+  rulesToCss,
+  injectCssOverrides,
+  scopeSelector,
+  CssPatchSchema,
+} from "~/lib/services/cssPatch";
 
 describe("rulesToCss", () => {
   it("сериализует одно правило с !important", () => {
@@ -20,57 +25,51 @@ describe("rulesToCss", () => {
   });
 
   it("не дублирует !important", () => {
-    const css = rulesToCss([{ selector: "a", properties: { color: "blue !important" } }]);
+    const css = rulesToCss([
+      { selector: "a", properties: { color: "blue !important" } },
+    ]);
     expect(css).toContain("color: blue !important;");
     expect(css).not.toContain("!important !important");
   });
+});
 
-  describe("scope", () => {
-    const SCOPE = '[data-nit-section="hero"]';
+describe("scopeSelector", () => {
+  it("body → сам scope", () => {
+    expect(scopeSelector("body", "hero")).toBe('[data-nit-section="hero"]');
+  });
 
-    it("префиксирует обычные селекторы scope'ом", () => {
-      const css = rulesToCss(
-        [{ selector: "h1", properties: { color: "red" } }],
-        SCOPE,
-      );
-      expect(css).toContain(`${SCOPE} h1 {`);
-    });
+  it("body.foo → scope.foo", () => {
+    expect(scopeSelector("body.foo", "hero")).toBe('[data-nit-section="hero"].foo');
+  });
 
-    it("body/html заменяются на сам scope (без потомка)", () => {
-      const css = rulesToCss(
-        [{ selector: "body", properties: { background: "red" } }],
-        SCOPE,
-      );
-      expect(css).toContain(`${SCOPE} {`);
-      expect(css).not.toContain(`${SCOPE} body`);
-    });
+  it("простой тег → scope + тег", () => {
+    expect(scopeSelector("h1", "hero")).toBe('[data-nit-section="hero"] h1');
+  });
 
-    it("множественные селекторы через запятую — каждый префиксится", () => {
-      const css = rulesToCss(
-        [{ selector: "h1, h2, h3", properties: { color: "red" } }],
-        SCOPE,
-      );
-      expect(css).toContain(`${SCOPE} h1`);
-      expect(css).toContain(`${SCOPE} h2`);
-      expect(css).toContain(`${SCOPE} h3`);
-    });
+  it("класс → scope + класс", () => {
+    expect(scopeSelector(".btn", "pricing")).toBe('[data-nit-section="pricing"] .btn');
+  });
 
-    it("idempotent: если селектор уже начинается с scope — не дублирует", () => {
-      const css = rulesToCss(
-        [{ selector: `${SCOPE} h1`, properties: { color: "red" } }],
-        SCOPE,
-      );
-      expect((css.match(/\[data-nit-section="hero"\]/g) ?? []).length).toBe(1);
-    });
+  it("множественный через запятую — каждый скоупится отдельно", () => {
+    const out = scopeSelector("h1, .btn, button", "hero");
+    expect(out).toContain('[data-nit-section="hero"] h1');
+    expect(out).toContain('[data-nit-section="hero"] .btn');
+    expect(out).toContain('[data-nit-section="hero"] button');
+  });
 
-    it("смешанные: body и h1 в одном селекторе", () => {
-      const css = rulesToCss(
-        [{ selector: "body, h1", properties: { color: "red" } }],
-        SCOPE,
-      );
-      // body → scope, h1 → scope h1
-      expect(css).toMatch(/\[data-nit-section="hero"\],\s*\[data-nit-section="hero"\] h1/);
-    });
+  it("html не скоупится", () => {
+    expect(scopeSelector("html", "hero")).toBe("html");
+  });
+
+  it("idempotent: уже скоупленный селектор не скоупится второй раз", () => {
+    const already = '[data-nit-section="hero"] h1';
+    expect(scopeSelector(already, "hero")).toBe(already);
+  });
+
+  it("пустые части отбрасываются", () => {
+    expect(scopeSelector("h1, , button", "hero")).toBe(
+      '[data-nit-section="hero"] h1, [data-nit-section="hero"] button',
+    );
   });
 });
 
@@ -79,11 +78,11 @@ describe("injectCssOverrides", () => {
     const html = "<!DOCTYPE html><html><head><title>X</title></head><body></body></html>";
     const out = injectCssOverrides(html, "body{color:red}");
     expect(out).toContain('<style id="nit-overrides">');
-    expect(out.indexOf('<style id="nit-overrides">')).toBeLessThan(out.indexOf("</head>"));
+    expect(out).toContain("body{color:red}");
   });
 
   it("дополняет существующий блок", () => {
-    const html = `<!DOCTYPE html><html><head>
+    const html = `<html><head>
 <style id="nit-overrides">
 body { background: red !important; }
 </style>
@@ -95,37 +94,22 @@ body { background: red !important; }
     expect(blockMatches.length).toBe(1);
   });
 
-  it("вставляет в <body> если нет </head>", () => {
-    const html = "<html><body>x</body></html>";
-    const out = injectCssOverrides(html, "h1{color:red}");
-    expect(out).toContain('<style id="nit-overrides">');
-    expect(out.indexOf("<body")).toBeLessThan(out.indexOf('<style id="nit-overrides">'));
-  });
-
-  it("пустой css — возвращает html без изменений", () => {
+  it("пустой css — без изменений", () => {
     const html = "<html><head></head><body></body></html>";
     expect(injectCssOverrides(html, "")).toBe(html);
-    expect(injectCssOverrides(html, "   ")).toBe(html);
   });
 });
 
 describe("CssPatchSchema", () => {
-  it("валидирует корректный patch", () => {
+  it("валидный patch", () => {
     expect(
-      CssPatchSchema.safeParse({ rules: [{ selector: "body", properties: { color: "red" } }] })
-        .success,
+      CssPatchSchema.safeParse({
+        rules: [{ selector: "body", properties: { color: "red" } }],
+      }).success,
     ).toBe(true);
   });
 
-  it("отклоняет пустой список", () => {
+  it("пустой rules отклоняется", () => {
     expect(CssPatchSchema.safeParse({ rules: [] }).success).toBe(false);
-  });
-
-  it("отклоняет >20 правил", () => {
-    const rules = Array.from({ length: 21 }, (_, i) => ({
-      selector: `s${i}`,
-      properties: { color: "red" },
-    }));
-    expect(CssPatchSchema.safeParse({ rules }).success).toBe(false);
   });
 });

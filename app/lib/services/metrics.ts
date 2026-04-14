@@ -6,16 +6,13 @@
 type Counter = { value: number; labels?: Record<string, string> };
 type Histogram = { count: number; sum: number; buckets: Map<number, number> };
 
-// Counters
 const counters = new Map<string, Counter>();
-// Histograms (latency in ms)
 const histograms = new Map<string, Histogram>();
 
-// Process start time for uptime metric
 const PROCESS_START = Date.now();
 
-// Histogram buckets in milliseconds — typical LLM latency range
 const DEFAULT_BUCKETS = [100, 500, 1000, 2000, 5000, 10_000, 20_000, 30_000, 60_000, 120_000];
+const RULE_COUNT_BUCKETS = [1, 2, 3, 5, 8, 13, 20];
 
 function counterKey(name: string, labels?: Record<string, string>): string {
   if (!labels) return name;
@@ -40,22 +37,25 @@ export function incrementCounter(
   }
 }
 
-export function observeHistogram(name: string, value: number): void {
+export function observeHistogram(
+  name: string,
+  value: number,
+  buckets: number[] = DEFAULT_BUCKETS,
+): void {
   let h = histograms.get(name);
   if (!h) {
-    h = { count: 0, sum: 0, buckets: new Map(DEFAULT_BUCKETS.map((b) => [b, 0])) };
+    h = { count: 0, sum: 0, buckets: new Map(buckets.map((b) => [b, 0])) };
     histograms.set(name, h);
   }
   h.count++;
   h.sum += value;
-  for (const bucket of DEFAULT_BUCKETS) {
+  for (const bucket of buckets) {
     if (value <= bucket) {
       h.buckets.set(bucket, (h.buckets.get(bucket) ?? 0) + 1);
     }
   }
 }
 
-/** Метрики-хелперы для типичных событий NIT Builder */
 export const metrics = {
   generationStarted: (mode: "create" | "polish", provider: string) => {
     incrementCounter("nit_generations_total", { mode, provider });
@@ -73,13 +73,51 @@ export const metrics = {
   rateLimited: (scope: string) => {
     incrementCounter("nit_rate_limited_total", { scope });
   },
+  /**
+   * Трекаем каждую polish-классификацию: patch vs rewrite, scoped vs global.
+   * Даёт ответ на вопрос "какая доля правок уходит в дешёвый path".
+   */
+  polishIntent: (intent: "css_patch" | "full_rewrite", targeted: boolean) => {
+    incrementCounter("nit_polish_intent_total", {
+      intent,
+      targeted: targeted ? "1" : "0",
+    });
+  },
+  /**
+   * Какие секции юзеры чаще всего просят поправить.
+   * Приоритизация для будущей Section Library.
+   */
+  polishSectionTarget: (section: string) => {
+    incrementCounter("nit_polish_section_target_total", { section });
+  },
+  /**
+   * Сколько правил генерит CSS-патчер. Если гистограмма ползёт к 20 —
+   * модель раздувает патчи, нужно подкручивать промпт.
+   */
+  patchRulesGenerated: (count: number) => {
+    observeHistogram("nit_patch_rules_per_request", count, RULE_COUNT_BUCKETS);
+  },
+  /**
+   * CSS-patch упал и мы фолбэкнулись на full rewrite. Если растёт —
+   * значит или промпт плох, или модель не тянет structured output.
+   */
+  cssPatchFallback: (reason: string) => {
+    incrementCounter("nit_css_patch_fallback_total", { reason });
+  },
+  /**
+   * Хит кеша планов. Косвенный индикатор типичности запросов.
+   */
+  planCacheHit: () => {
+    incrementCounter("nit_plan_cache_hits_total");
+  },
+  planCacheMiss: () => {
+    incrementCounter("nit_plan_cache_misses_total");
+  },
 };
 
-/** Prometheus text exposition format */
 export function exportMetrics(): string {
   const lines: string[] = [];
 
-  // Process info
   lines.push("# HELP nit_uptime_seconds Process uptime in seconds");
   lines.push("# TYPE nit_uptime_seconds gauge");
   lines.push(`nit_uptime_seconds ${((Date.now() - PROCESS_START) / 1000).toFixed(0)}`);
@@ -90,7 +128,6 @@ export function exportMetrics(): string {
   lines.push(`nit_memory_heap_used_bytes ${process.memoryUsage().heapUsed}`);
   lines.push("");
 
-  // Counters
   const counterNames = new Set<string>();
   for (const [key] of counters) {
     counterNames.add(key.split("{")[0]!);
@@ -107,12 +144,12 @@ export function exportMetrics(): string {
     lines.push("");
   }
 
-  // Histograms
   for (const [name, h] of histograms) {
     lines.push(`# HELP ${name} Histogram`);
     lines.push(`# TYPE ${name} histogram`);
+    const bucketList = Array.from(h.buckets.keys()).sort((a, b) => a - b);
     let cumulative = 0;
-    for (const bucket of DEFAULT_BUCKETS) {
+    for (const bucket of bucketList) {
       cumulative = h.buckets.get(bucket) ?? cumulative;
       lines.push(`${name}_bucket{le="${bucket}"} ${cumulative}`);
     }

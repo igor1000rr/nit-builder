@@ -27,10 +27,9 @@ import { metrics } from "~/lib/services/metrics";
 import { repairTruncatedHtml } from "~/lib/utils/htmlRepair";
 import { getCachedPlan, setCachedPlan } from "~/lib/services/planCache";
 import { classifyPolishIntent, type PolishIntent } from "~/lib/services/intentClassifier";
-import { applyCssPatch } from "~/lib/services/cssPatch";
+import { applyCssPatch, extractSectionsFromHtml } from "~/lib/services/cssPatch";
 import { retrieveTemplates } from "~/lib/services/templateRetriever";
 import { enrichSectionAnchors } from "~/lib/utils/sectionAnchors";
-import { listSectionIds } from "~/lib/utils/sectionExtractor";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -43,16 +42,27 @@ export type PipelineEvent =
   | { type: "template_selected"; templateId: string; templateName: string }
   | { type: "text"; text: string }
   | { type: "step_complete"; html?: string }
-  | { type: "polish_mode"; intent: PolishIntent; reason: string; sectionId?: string }
-  | { type: "css_patch_applied"; ruleCount: number; css: string; scope: "global" | "section"; sectionId?: string }
+  | {
+      type: "polish_mode";
+      intent: PolishIntent;
+      reason: string;
+      targetSections: string[];
+    }
+  | {
+      type: "css_patch_applied";
+      ruleCount: number;
+      css: string;
+      scoped: boolean;
+      targetSections: string[];
+    }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
   providerOverride?: { modelName?: string };
   skipPlanCache?: boolean;
   polishIntent?: PolishIntent;
-  /** Принудительный sectionId (обход детекта) — для будущего UI hover-выделения */
-  sectionId?: string;
+  /** Принудительный список целевых секций (обход извлечения из запроса). */
+  targetSections?: string[];
 };
 
 function stripCodeFences(text: string): string {
@@ -96,8 +106,10 @@ async function obtainPlan(
     const cached = getCachedPlan(sanitizedMessage);
     if (cached) {
       logger.info(SCOPE, `Plan cache hit for: ${sanitizedMessage.slice(0, 60)}`);
+      metrics.planCacheHit();
       return { plan: cached, cached: true };
     }
+    metrics.planCacheMiss();
   }
 
   let candidateIds: string[] | undefined;
@@ -299,35 +311,36 @@ export async function* executeHtmlPolish(
   const startMs = Date.now();
   const sanitizedRequest = sanitizeUserMessage(userRequest);
 
-  // Доступные секции в текущем HTML — чтобы classifier не предлагал sectionId='menu'
-  // когда меню в сайте нету. Если секции ещё не проаннотированы
-  // (legacy HTML до enrichSectionAnchors) — availableSections будет пустым,
-  // тогда sectionId не детектится и работаем в global-режиме (безопасно).
-  const availableSections = listSectionIds(memory.currentHtml);
+  // Классификация + извлечение target sections
+  const baseClassification = classifyPolishIntent(sanitizedRequest);
+  const intent: PolishIntent = options.polishIntent ?? baseClassification.intent;
+  const reason = options.polishIntent
+    ? "user override"
+    : baseClassification.reason;
 
-  const classification = options.polishIntent
-    ? { intent: options.polishIntent, reason: "user override", sectionId: options.sectionId }
-    : (() => {
-        const c = classifyPolishIntent(sanitizedRequest, availableSections);
-        return {
-          intent: c.intent,
-          reason: c.reason,
-          sectionId: options.sectionId ?? c.sectionId,
-        };
-      })();
+  // Фильтр target sections: оставляем только те, что реально присутствуют в текущем HTML.
+  // Защищает от галлюцинаций юзера ("сделай hero синим" когда hero нет).
+  const availableSections = extractSectionsFromHtml(memory.currentHtml);
+  const availableSet = new Set(availableSections);
+  const requestedTargets = options.targetSections ?? baseClassification.targetSections;
+  const validTargets = requestedTargets.filter((s) => availableSet.has(s));
+
+  metrics.polishIntent(intent, validTargets.length > 0);
+  for (const s of validTargets) metrics.polishSectionTarget(s);
 
   yield {
     type: "polish_mode",
-    intent: classification.intent,
-    reason: classification.reason,
-    sectionId: classification.sectionId,
+    intent,
+    reason,
+    targetSections: validTargets,
   };
 
-  if (classification.intent === "css_patch") {
+  // ─── CSS PATCH PATH ───
+  if (intent === "css_patch") {
     metrics.generationStarted("polish", provider.id);
     yield {
       type: "step_start",
-      roleName: classification.sectionId ? `CSS-Патчер (${classification.sectionId})` : "CSS-Патчер",
+      roleName: validTargets.length > 0 ? "CSS-Патчер (scoped)" : "CSS-Патчер",
       model: provider.defaultModel,
       provider: provider.id,
     };
@@ -337,9 +350,11 @@ export async function* executeHtmlPolish(
         model,
         userRequest: sanitizedRequest,
         currentHtml: memory.currentHtml,
-        sectionId: classification.sectionId,
+        targetSections: validTargets.length > 0 ? validTargets : undefined,
         signal,
       });
+
+      metrics.patchRulesGenerated(result.ruleCount);
 
       const finalHtml = enrichSectionAnchors(result.html);
       memory.currentHtml = finalHtml;
@@ -351,20 +366,25 @@ export async function* executeHtmlPolish(
         type: "css_patch_applied",
         ruleCount: result.ruleCount,
         css: result.css,
-        scope: result.scope,
-        sectionId: result.sectionId,
+        scoped: result.scoped,
+        targetSections: validTargets,
       };
       yield { type: "step_complete", html: finalHtml };
       return;
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
+      const errMsg = (err as Error).message;
       logger.warn(
         SCOPE,
-        `CSS patch failed (${(err as Error).message}), falling back to full rewrite`,
+        `CSS patch failed (${errMsg}), falling back to full rewrite`,
+      );
+      metrics.cssPatchFallback(
+        errMsg.toLowerCase().includes("schema") ? "schema_error" : "other",
       );
     }
   }
 
+  // ─── FULL REWRITE PATH ───
   metrics.generationStarted("polish", provider.id);
   yield {
     type: "step_start",

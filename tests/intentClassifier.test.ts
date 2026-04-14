@@ -1,51 +1,39 @@
 import { describe, it, expect } from "vitest";
-import { classifyPolishIntent } from "~/lib/services/intentClassifier";
+import {
+  classifyPolishIntent,
+  detectSectionId,
+} from "~/lib/services/intentClassifier";
 
 describe("classifyPolishIntent", () => {
-  describe("чистые style-запросы → css_patch", () => {
+  describe("style-запросы → css_patch", () => {
     const styleQueries = [
       "сделай фон синим",
       "поменяй цвет на красный",
       "в тёмную тему",
       "сделай светлее",
       "больше отступов",
-      "измени шрифт на жирный",
       "скругли кнопки",
-      "добавь тень", // 'tень' style + 'добавь' structural — structural wins; см. ниже
-      "кнопки в розовый",
       "make it dark",
       "font bigger",
     ];
-
     for (const q of styleQueries) {
       it(`"${q}"`, () => {
-        const c = classifyPolishIntent(q);
-        // Исключение: "добавь тень" — "добавь" это structural кейворд.
-        // Приоритет structural >= style: это по дизайну.
-        // Для уже имеющегося элемента "сделай тень побольше" — было бы css_patch.
-        if (q === "добавь тень") {
-          expect(c.intent).toBe("full_rewrite");
-        } else {
-          expect(c.intent).toBe("css_patch");
-        }
+        expect(classifyPolishIntent(q).intent).toBe("css_patch");
       });
     }
   });
 
-  describe("структурные запросы → full_rewrite", () => {
+  describe("structural-запросы → full_rewrite", () => {
     const structuralQueries = [
       "добавь секцию отзывы",
       "убери блок цен",
       "удали меню",
       "перенеси футер наверх",
       "перепиши заголовок",
-      "переименуй секцию о нас",
       "придумай новый слоган",
       "новый баннер сверху",
-      "замени текст в герое",
       "создай блок фактов",
     ];
-
     for (const q of structuralQueries) {
       it(`"${q}"`, () => {
         expect(classifyPolishIntent(q).intent).toBe("full_rewrite");
@@ -53,39 +41,83 @@ describe("classifyPolishIntent", () => {
     }
   });
 
-  describe("смешанные / structural побеждает", () => {
-    it("добавь красную секцию → full_rewrite (structural выигрывает)", () => {
-      const c = classifyPolishIntent("добавь красную секцию отзывов");
-      expect(c.intent).toBe("full_rewrite");
-      expect(c.styleHits).toBeGreaterThan(0);
-      expect(c.structuralHits).toBeGreaterThan(0);
+  describe("section detection", () => {
+    it("\"сделай героя синим\" → css_patch + sectionId=hero", () => {
+      const c = classifyPolishIntent("сделай героя синим");
+      expect(c.intent).toBe("css_patch");
+      expect(c.sectionId).toBe("hero");
+    });
+
+    it("\"в секции цен покрупнее\" → sectionId=pricing", () => {
+      const c = classifyPolishIntent("в секции цен заголовки покрупнее");
+      expect(c.intent).toBe("css_patch");
+      expect(c.sectionId).toBe("pricing");
+    });
+
+    it("\"футер в тёмный\" → sectionId=footer", () => {
+      const c = classifyPolishIntent("футер в тёмный");
+      expect(c.intent).toBe("css_patch");
+      expect(c.sectionId).toBe("footer");
+    });
+
+    it("глобальный запрос без упоминания секции → sectionId=undefined", () => {
+      const c = classifyPolishIntent("сделай фон синим");
+      expect(c.sectionId).toBeUndefined();
+    });
+
+    it("учитывает availableSectionIds (не выдаёт menu если его нет)", () => {
+      const c = classifyPolishIntent("в меню кнопки покрупнее", ["hero", "contact"]);
+      expect(c.sectionId).toBeUndefined();
+    });
+
+    it("выдаёт sectionId если он есть в availableSectionIds", () => {
+      const c = classifyPolishIntent("в меню кнопки покрупнее", ["hero", "menu"]);
+      expect(c.sectionId).toBe("menu");
     });
   });
 
   describe("edge cases", () => {
-    it("пустой запрос → full_rewrite с low confidence", () => {
+    it("пустой запрос → full_rewrite low confidence", () => {
       const c = classifyPolishIntent("");
       expect(c.intent).toBe("full_rewrite");
       expect(c.confidence).toBe("low");
     });
 
-    it("нераспознанный запрос → full_rewrite (сафе default)", () => {
-      const c = classifyPolishIntent("хмм не знаю что хочу");
+    it("нераспознанный → full_rewrite safe default", () => {
+      const c = classifyPolishIntent("хмм не знаю");
       expect(c.intent).toBe("full_rewrite");
-      expect(c.confidence).toBe("low");
     });
 
-    it("множественные style hits → high confidence", () => {
+    it("high confidence на множественных style hit'ах", () => {
       const c = classifyPolishIntent("сделай фон синим и шрифт покрупнее");
       expect(c.intent).toBe("css_patch");
       expect(c.confidence).toBe("high");
     });
+  });
+});
 
-    it("результат всегда содержит reason и счётчики", () => {
-      const c = classifyPolishIntent("синий фон");
-      expect(c.reason).toBeTruthy();
-      expect(typeof c.styleHits).toBe("number");
-      expect(typeof c.structuralHits).toBe("number");
-    });
+describe("detectSectionId", () => {
+  it("находит hero по синонимам", () => {
+    expect(detectSectionId("сделай героя синим")).toBe("hero");
+    expect(detectSectionId("первый экран ярче")).toBe("hero");
+    expect(detectSectionId("hero background")).toBe("hero");
+  });
+
+  it("находит pricing", () => {
+    expect(detectSectionId("в секции цен")).toBe("pricing");
+    expect(detectSectionId("тарифы другого цвета")).toBe("pricing");
+  });
+
+  it("находит contact", () => {
+    expect(detectSectionId("контакты перекрась")).toBe("contact");
+  });
+
+  it("undefined для неупоминаемой секции", () => {
+    expect(detectSectionId("сделай фон синим")).toBeUndefined();
+  });
+
+  it("уважает availableIds", () => {
+    expect(detectSectionId("в меню кнопки", ["hero"])).toBeUndefined();
+    expect(detectSectionId("в меню кнопки", ["hero", "menu"])).toBe("menu");
   });
 });

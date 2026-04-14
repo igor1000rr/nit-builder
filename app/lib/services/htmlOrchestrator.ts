@@ -30,6 +30,7 @@ import { classifyPolishIntent, type PolishIntent } from "~/lib/services/intentCl
 import { applyCssPatch } from "~/lib/services/cssPatch";
 import { retrieveTemplates } from "~/lib/services/templateRetriever";
 import { enrichSectionAnchors } from "~/lib/utils/sectionAnchors";
+import { listSectionIds } from "~/lib/utils/sectionExtractor";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -42,14 +43,16 @@ export type PipelineEvent =
   | { type: "template_selected"; templateId: string; templateName: string }
   | { type: "text"; text: string }
   | { type: "step_complete"; html?: string }
-  | { type: "polish_mode"; intent: PolishIntent; reason: string }
-  | { type: "css_patch_applied"; ruleCount: number; css: string }
+  | { type: "polish_mode"; intent: PolishIntent; reason: string; sectionId?: string }
+  | { type: "css_patch_applied"; ruleCount: number; css: string; scope: "global" | "section"; sectionId?: string }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
   providerOverride?: { modelName?: string };
   skipPlanCache?: boolean;
   polishIntent?: PolishIntent;
+  /** Принудительный sectionId (обход детекта) — для будущего UI hover-выделения */
+  sectionId?: string;
 };
 
 function stripCodeFences(text: string): string {
@@ -97,7 +100,6 @@ async function obtainPlan(
     }
   }
 
-  // Embedding-префильтр каталога. null → полный каталог (legacy).
   let candidateIds: string[] | undefined;
   try {
     const retrieved = await retrieveTemplates(sanitizedMessage, 5, signal);
@@ -107,7 +109,6 @@ async function obtainPlan(
     }
   } catch (retrieverErr) {
     if ((retrieverErr as Error).name === "AbortError") throw retrieverErr;
-    // Не критично — трактуем как "без префильтра".
   }
 
   try {
@@ -298,20 +299,35 @@ export async function* executeHtmlPolish(
   const startMs = Date.now();
   const sanitizedRequest = sanitizeUserMessage(userRequest);
 
+  // Доступные секции в текущем HTML — чтобы classifier не предлагал sectionId='menu'
+  // когда меню в сайте нету. Если секции ещё не проаннотированы
+  // (legacy HTML до enrichSectionAnchors) — availableSections будет пустым,
+  // тогда sectionId не детектится и работаем в global-режиме (безопасно).
+  const availableSections = listSectionIds(memory.currentHtml);
+
   const classification = options.polishIntent
-    ? { intent: options.polishIntent, reason: "user override" }
+    ? { intent: options.polishIntent, reason: "user override", sectionId: options.sectionId }
     : (() => {
-        const c = classifyPolishIntent(sanitizedRequest);
-        return { intent: c.intent, reason: c.reason };
+        const c = classifyPolishIntent(sanitizedRequest, availableSections);
+        return {
+          intent: c.intent,
+          reason: c.reason,
+          sectionId: options.sectionId ?? c.sectionId,
+        };
       })();
 
-  yield { type: "polish_mode", intent: classification.intent, reason: classification.reason };
+  yield {
+    type: "polish_mode",
+    intent: classification.intent,
+    reason: classification.reason,
+    sectionId: classification.sectionId,
+  };
 
   if (classification.intent === "css_patch") {
     metrics.generationStarted("polish", provider.id);
     yield {
       type: "step_start",
-      roleName: "CSS-Патчер",
+      roleName: classification.sectionId ? `CSS-Патчер (${classification.sectionId})` : "CSS-Патчер",
       model: provider.defaultModel,
       provider: provider.id,
     };
@@ -321,6 +337,7 @@ export async function* executeHtmlPolish(
         model,
         userRequest: sanitizedRequest,
         currentHtml: memory.currentHtml,
+        sectionId: classification.sectionId,
         signal,
       });
 
@@ -330,7 +347,13 @@ export async function* executeHtmlPolish(
       updateSessionHtml(memory.sessionId, finalHtml);
       metrics.generationCompleted("polish", provider.id, Date.now() - startMs);
 
-      yield { type: "css_patch_applied", ruleCount: result.ruleCount, css: result.css };
+      yield {
+        type: "css_patch_applied",
+        ruleCount: result.ruleCount,
+        css: result.css,
+        scope: result.scope,
+        sectionId: result.sectionId,
+      };
       yield { type: "step_complete", html: finalHtml };
       return;
     } catch (err) {

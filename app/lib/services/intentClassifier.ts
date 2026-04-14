@@ -4,12 +4,10 @@
  * Задача: определить, можно ли обработать запрос юзера дешёвым CSS-патчем
  * (~200 токенов) или нужен полный rewrite всего HTML (~6000-12000 токенов).
  *
- * Запросы вида "сделай фон синим", "увеличь заголовки", "в тёмную тему" — это
- * css_patch. Запросы "добавь секцию отзывы", "убери блок цен", "перепиши текст
- * в герое" — full_rewrite, CSS их не решит.
- *
- * Эвристика работает 0ms и покрывает ~80% типовых запросов. Для неоднозначных
- * и нераспознанных выбираем full_rewrite — безопасный default.
+ * Дополнительно: детектирует sectionId — какую секцию упоминает юзер
+ * ("герой", "секция цен", "футер"). Если sectionId есть — это позволяет:
+ *   - scope-ограничить CSS-патч одной секцией
+ *   - в будущем — делать section-level rewrite вместо full_rewrite
  */
 
 export type PolishIntent = "css_patch" | "full_rewrite";
@@ -20,14 +18,11 @@ export type ClassificationResult = {
   reason: string;
   styleHits: number;
   structuralHits: number;
+  /** Id упомянутой секции (hero, menu, etc), undefined если глобальная правка */
+  sectionId?: string;
 };
 
-/**
- * Сигналы в пользу CSS-патча (визуальные свойства).
- * Покрывает русский, беларусский и английский варианты.
- */
 const STYLE_PATTERNS: RegExp[] = [
-  // Цвета
   /\bцвет\w*/i,
   /\bколор\w*/i,
   /\bcolor\b/i,
@@ -40,19 +35,15 @@ const STYLE_PATTERNS: RegExp[] = [
   /\blight\b/i,
   /\bяр(к|ч)\w*/i,
   /\bпригас\w*/i,
-
-  // Фон
   /\bфон\w*/i,
   /\bbackground\b/i,
   /\bbg-/i,
-
-  // Размеры/отступы
   /\bкрупн\w*/i,
   /\bмельч\w*/i,
   /\bпомельче/i,
   /\bпокрупнее/i,
   /\bменьш\w*/i,
-  /\bбольш\w*/i, // ПОДОЗРИТЕЛЬНО: "больше секций" structural — решается приоритетом structural.
+  /\bбольш\w*/i,
   /\bшире\b/i,
   /\bуже\b/i,
   /\bотступ\w*/i,
@@ -62,8 +53,6 @@ const STYLE_PATTERNS: RegExp[] = [
   /\bинтервал\w*/i,
   /\bвысот\w*/i,
   /\bширин\w*/i,
-
-  // Шрифты
   /\bшрифт\w*/i,
   /\bfont\b/i,
   /\bжирн\w*/i,
@@ -71,8 +60,6 @@ const STYLE_PATTERNS: RegExp[] = [
   /\bкурсив\w*/i,
   /\bitalic\b/i,
   /\bподч[её]ркн\w*/i,
-
-  // Эффекты
   /\bскругл\w*/i,
   /\bround\w*/i,
   /\bтень\w*/i,
@@ -83,20 +70,14 @@ const STYLE_PATTERNS: RegExp[] = [
   /\bразмыт\w*/i,
   /\bградиент\w*/i,
   /\bgradient\b/i,
-
-  // Общие визуальные
   /\bдизайн\w*/i,
   /\bтем(а|у|ы)\b/i,
   /\bстил(ь|ем|я)\w*/i,
   /\bвид\b/i,
-  /\bкнопк\w*/i, // "сделай кнопки круглыми" — style
+  /\bкнопк\w*/i,
 ];
 
-/**
- * Сигналы в пользу полного rewrite (структура/контент). Приоритетнее style.
- */
 const STRUCTURAL_PATTERNS: RegExp[] = [
-  // Добавление/удаление блоков
   /\bдобав(ь|и|ить|ление|им)/i,
   /\bвстав(ь|ить|ка|им)/i,
   /\bсоздай\w*/i,
@@ -105,15 +86,11 @@ const STRUCTURAL_PATTERNS: RegExp[] = [
   /\bвыкин(ь|и|уть)/i,
   /\bremove\b/i,
   /\badd\b/i,
-
-  // Секции/блоки
   /\bсекци\w*/i,
   /\bблок\w*/i,
   /\bsection\b/i,
   /\bbanner\b/i,
   /\bбаннер\w*/i,
-
-  // Текстовые правки
   /\bперепиш\w*/i,
   /\bпереименуй/i,
   /\bзамени\s+(текст|заголов|слов)/i,
@@ -122,20 +99,56 @@ const STRUCTURAL_PATTERNS: RegExp[] = [
   /\bнапиши\b/i,
   /\bпридумай\w*/i,
   /\bпредложи\w*/i,
-
-  // Перемещение
   /\bперенес(и|ти)/i,
   /\bперестав(ь|ить)/i,
   /\bпоменяй\s+места?/i,
   /\bswap\b/i,
   /\bmove\b/i,
-
-  // Контент
   /\bсодерж\w*/i,
   /\bконтент\w*/i,
   /\bменю\b/i,
   /\bпрайс\w*/i,
   /\bцен(ы|ам|ник)\w*/i,
+];
+
+/**
+ * Паттерны для детекта упоминания секции. Ключ — section id из канонического
+ * набора (plan.sections). Покрывают RU/BY/EN варианты наименований секций.
+ *
+ * Проверяются в порядке объявления — первый match выигрывает, так что специфичные
+ * паттерны сверху.
+ */
+const SECTION_ID_PATTERNS: [string, RegExp][] = [
+  ["hero", /\b(геро(е|й|я|и)|hero|первый\s+экран|главный\s+экран|верхн(ий|яя)\s+блок|шапка|баннер)\b/i],
+  ["footer", /\b(футер|подвал|footer)\b/i],
+  ["pricing", /\b(цен|тариф|прайс|pricing|стоимост)\w*/i],
+  ["menu", /\bменю\b/i],
+  ["contact", /\b(контакт\w*|contact\w*)\b/i],
+  ["about", /\b(о\s+нас|обо\s+мне|о\s+компани|about)\b/i],
+  ["gallery", /\b(галерея|портфолио|gallery|работы)\b/i],
+  ["services", /\b(услуг|сервис|services)\w*/i],
+  ["testimonials", /\b(отзыв|testimonial|мнени)\w*/i],
+  ["features", /\b(фичи|возможност|преимуществ|features)\w*/i],
+  ["booking", /\b(запись|брон(ь|ирован)|booking)\w*/i],
+  ["team", /\b(команда|team)\w*/i],
+  ["masters", /\b(мастера?|masters)\b/i],
+  ["cta", /\b(cta|призыв)\b/i],
+  ["hours", /\b(час\w+\s+работ|режим\s+работ|hours)\b/i],
+  ["location", /\b(адрес|локаци|карта|location)\w*/i],
+  ["schedule", /\b(расписан(ие|ия)|программа|schedule)\b/i],
+  ["tracks", /\b(треки|tracks|музыка)\b/i],
+  ["events", /\b(ивенты|мероприят|events)\w*/i],
+  ["doctors", /\b(врач|доктор|doctors)\w*/i],
+  ["instructors", /\b(инструктор|instructors)\w*/i],
+  ["classes", /\b(класс|занятия|classes)\w*/i],
+  ["programs", /\b(программ|programs)\w*/i],
+  ["skills", /\b(навыки?|skills)\b/i],
+  ["projects", /\b(проекты?|projects)\b/i],
+  ["story", /\b(история|story)\b/i],
+  ["rsvp", /\b(rsvp|подтверждение\s+участ)\w*/i],
+  ["order-form", /\b(форма\s+заказ|оформлен\w+\s+заказ|order)\w*/i],
+  ["why-us", /\b(почему\s+мы|why\s+us)\b/i],
+  ["how-it-works", /\b(как\s+мы\s+работ|how\s+it\s+works|этапы)\b/i],
 ];
 
 function countMatches(text: string, patterns: RegExp[]): number {
@@ -144,7 +157,30 @@ function countMatches(text: string, patterns: RegExp[]): number {
   return count;
 }
 
-export function classifyPolishIntent(userRequest: string): ClassificationResult {
+/**
+ * Детектирует упоминание конкретной секции в запросе. Возвращает
+ * канонический id ("hero", "pricing", ...) или undefined.
+ *
+ * Если availableIds переданы — возвращает только id, которые реально
+ * существуют в текущем HTML (избегаем detect="menu" когда меню нет).
+ */
+export function detectSectionId(
+  userRequest: string,
+  availableIds?: string[],
+): string | undefined {
+  const available = availableIds ? new Set(availableIds) : null;
+  for (const [id, pattern] of SECTION_ID_PATTERNS) {
+    if (pattern.test(userRequest)) {
+      if (!available || available.has(id)) return id;
+    }
+  }
+  return undefined;
+}
+
+export function classifyPolishIntent(
+  userRequest: string,
+  availableSectionIds?: string[],
+): ClassificationResult {
   const text = userRequest.trim();
 
   if (!text) {
@@ -159,35 +195,36 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
 
   const styleHits = countMatches(text, STYLE_PATTERNS);
   const structuralHits = countMatches(text, STRUCTURAL_PATTERNS);
+  const sectionId = detectSectionId(text, availableSectionIds);
 
-  // Структурные сигналы приоритетнее — даже один отправляет в full_rewrite.
   if (structuralHits >= 1) {
     return {
       intent: "full_rewrite",
       confidence: structuralHits >= 2 ? "high" : "medium",
-      reason: `structural keywords: ${structuralHits}`,
+      reason: `structural keywords: ${structuralHits}${sectionId ? `, section=${sectionId}` : ""}`,
       styleHits,
       structuralHits,
+      sectionId,
     };
   }
 
-  // Чистые style-сигналы — можно CSS-патч.
   if (styleHits >= 1) {
     return {
       intent: "css_patch",
       confidence: styleHits >= 2 ? "high" : "medium",
-      reason: `style keywords: ${styleHits}`,
+      reason: `style keywords: ${styleHits}${sectionId ? `, section=${sectionId}` : ""}`,
       styleHits,
       structuralHits,
+      sectionId,
     };
   }
 
-  // Ничего не распознали — безопасный default в full_rewrite.
   return {
     intent: "full_rewrite",
     confidence: "low",
     reason: "no signal, default to safe full rewrite",
     styleHits,
     structuralHits,
+    sectionId,
   };
 }

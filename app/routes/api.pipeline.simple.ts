@@ -11,6 +11,10 @@ const Schema = z.object({
   message: z.string().min(1).max(10_000),
   providerId: z.string().optional(),
   modelName: z.string().optional(),
+  /** Опциональный override интента полировщика от фронта (если юзер нажал кнопку "только CSS"). */
+  polishIntent: z.enum(["css_patch", "full_rewrite"]).optional(),
+  /** Опциональная секция для scope CSS-патча (если фронт выделил секцию в preview). */
+  targetSection: z.string().min(1).max(50).optional(),
 });
 
 function sse(event: unknown): string {
@@ -55,7 +59,7 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: detail }, { status: 400 });
   }
 
-  const { mode, projectId, message, providerId, modelName } = parsed.data;
+  const { mode, projectId, message, providerId, modelName, polishIntent, targetSection } = parsed.data;
   const sessionId = parsed.data.sessionId ?? crypto.randomUUID();
   const memory = getOrCreateSession(sessionId, projectId);
   const providerOverride = providerId ? { providerId, modelName } : undefined;
@@ -69,7 +73,11 @@ export async function action({ request }: { request: Request }) {
         controller.enqueue(encoder.encode(sse({ type: "session_init", sessionId })));
 
         const gen = mode === "polish"
-          ? executeHtmlPolish(memory, message, request.signal, { providerOverride })
+          ? executeHtmlPolish(memory, message, request.signal, {
+              providerOverride,
+              polishIntent,
+              targetSection,
+            })
           : executeHtmlSimple(memory, message, request.signal, { providerOverride });
 
         for await (const event of gen) {

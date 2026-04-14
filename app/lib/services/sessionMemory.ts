@@ -4,6 +4,22 @@
  * потому что проекты сохраняются в Appwrite отдельно по projectId.
  */
 
+import type { Plan } from "~/lib/utils/planSchema";
+
+/** Контекст для continuation: когда модель упёрлась в лимит токенов. */
+export type TruncationContext = {
+  mode: "create" | "polish";
+  userMessage: string;
+  plan?: Plan;
+  templateId?: string;
+  /** Сырой HTML который успели сгенерировать до обрыва (без stripCodeFences/repair). */
+  partialHtml: string;
+  /** Сколько раз уже пытались продолжить. Лимит: MAX_CONTINUATION_ATTEMPTS. */
+  attempt: number;
+  /** Провайдер который использовался для оборванной генерации (для консистентности при continue). */
+  providerId: string;
+};
+
 export type SessionMemory = {
   sessionId: string;
   projectId: string;
@@ -12,6 +28,8 @@ export type SessionMemory = {
   templateId: string;
   createdAt: number;
   updatedAt: number;
+  /** Если установлен — есть оборванная генерация, доступен mode="continue". */
+  truncation?: TruncationContext;
 };
 
 const sessions = new Map<string, SessionMemory>();
@@ -26,7 +44,6 @@ export function getOrCreateSession(sessionId: string, projectId: string): Sessio
   }
 
   if (sessions.size >= MAX_SESSIONS) {
-    // evict oldest
     const oldest = sessions.keys().next().value;
     if (oldest) sessions.delete(oldest);
   }
@@ -56,7 +73,22 @@ export function updateSessionHtml(sessionId: string, html: string): void {
   }
 }
 
-// Periodic cleanup
+export function setTruncation(sessionId: string, truncation: TruncationContext): void {
+  const s = sessions.get(sessionId);
+  if (s) {
+    s.truncation = truncation;
+    s.updatedAt = Date.now();
+  }
+}
+
+export function clearTruncation(sessionId: string): void {
+  const s = sessions.get(sessionId);
+  if (s) {
+    s.truncation = undefined;
+    s.updatedAt = Date.now();
+  }
+}
+
 const cleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [id, s] of sessions) {
@@ -64,7 +96,6 @@ const cleanupTimer = setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-// For graceful shutdown
 if (typeof process !== "undefined") {
   process.on?.("SIGTERM", () => clearInterval(cleanupTimer));
   process.on?.("SIGINT", () => clearInterval(cleanupTimer));

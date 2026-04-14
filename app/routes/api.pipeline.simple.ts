@@ -2,20 +2,31 @@ import { z } from "zod";
 import { authOrGuest, checkGuestLimit } from "~/lib/server/auth";
 import { checkRateLimit } from "~/lib/utils/rateLimit";
 import { getOrCreateSession } from "~/lib/services/sessionMemory";
-import { executeHtmlSimple, executeHtmlPolish } from "~/lib/services/htmlOrchestrator";
+import {
+  executeHtmlSimple,
+  executeHtmlPolish,
+  executeHtmlContinue,
+} from "~/lib/services/htmlOrchestrator";
 
-const Schema = z.object({
-  mode: z.enum(["create", "polish"]).default("create"),
-  projectId: z.string().min(1),
-  sessionId: z.string().optional(),
-  message: z.string().min(1).max(10_000),
-  providerId: z.string().optional(),
-  modelName: z.string().optional(),
-  /** Опциональный override интента полировщика от фронта (если юзер нажал кнопку "только CSS"). */
-  polishIntent: z.enum(["css_patch", "full_rewrite"]).optional(),
-  /** Опциональная секция для scope CSS-патча (если фронт выделил секцию в preview). */
-  targetSection: z.string().min(1).max(50).optional(),
-});
+const Schema = z
+  .object({
+    mode: z.enum(["create", "polish", "continue"]).default("create"),
+    projectId: z.string().min(1),
+    sessionId: z.string().optional(),
+    message: z.string().max(10_000).optional(),
+    providerId: z.string().optional(),
+    modelName: z.string().optional(),
+    polishIntent: z.enum(["css_patch", "full_rewrite"]).optional(),
+    targetSection: z.string().min(1).max(50).optional(),
+  })
+  .refine(
+    (d) => d.mode === "continue" || (typeof d.message === "string" && d.message.length >= 1),
+    { message: "message required for mode=create|polish" },
+  )
+  .refine(
+    (d) => d.mode !== "continue" || typeof d.sessionId === "string",
+    { message: "sessionId required for mode=continue" },
+  );
 
 function sse(event: unknown): string {
   return `data: ${JSON.stringify(event)}\n\n`;
@@ -72,13 +83,16 @@ export async function action({ request }: { request: Request }) {
       try {
         controller.enqueue(encoder.encode(sse({ type: "session_init", sessionId })));
 
-        const gen = mode === "polish"
-          ? executeHtmlPolish(memory, message, request.signal, {
-              providerOverride,
-              polishIntent,
-              targetSection,
-            })
-          : executeHtmlSimple(memory, message, request.signal, { providerOverride });
+        const gen =
+          mode === "polish"
+            ? executeHtmlPolish(memory, message!, request.signal, {
+                providerOverride,
+                polishIntent,
+                targetSection,
+              })
+            : mode === "continue"
+            ? executeHtmlContinue(memory, request.signal, { providerOverride })
+            : executeHtmlSimple(memory, message!, request.signal, { providerOverride });
 
         for await (const event of gen) {
           controller.enqueue(encoder.encode(sse(event)));

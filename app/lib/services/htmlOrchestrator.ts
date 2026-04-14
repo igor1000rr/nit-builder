@@ -21,7 +21,12 @@ import {
   checkContextBudget,
 } from "~/lib/llm/client";
 import { sanitizeUserMessage } from "~/lib/utils/promptSanitizer";
-import { updateSessionHtml, type SessionMemory } from "~/lib/services/sessionMemory";
+import {
+  updateSessionHtml,
+  setTruncation,
+  clearTruncation,
+  type SessionMemory,
+} from "~/lib/services/sessionMemory";
 import { logger } from "~/lib/utils/logger";
 import { metrics } from "~/lib/services/metrics";
 import { repairTruncatedHtml } from "~/lib/utils/htmlRepair";
@@ -31,6 +36,16 @@ import { applyCssPatch } from "~/lib/services/cssPatch";
 import { retrieveTemplates } from "~/lib/services/templateRetriever";
 import { enrichSectionAnchors } from "~/lib/utils/sectionAnchors";
 import { recordGeneration } from "~/lib/services/feedbackStore";
+import { pruneTemplateForPlan } from "~/lib/utils/templatePrune";
+import {
+  CONTINUATION_SYSTEM_PROMPT,
+  CONTINUATION_TAIL_CHARS,
+  MAX_CONTINUATION_ATTEMPTS,
+  buildContinuationUserMessage,
+  joinPartialAndContinuation,
+  cleanRawForTail,
+  extractTail,
+} from "~/lib/services/continuation";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -41,6 +56,7 @@ export type PipelineEvent =
   | { type: "step_start"; roleName: string; model: string; provider: string }
   | { type: "plan_ready"; plan: Plan; cached?: boolean }
   | { type: "template_selected"; templateId: string; templateName: string }
+  | { type: "template_pruned"; removed: string[]; kept: string[] }
   | { type: "text"; text: string }
   | { type: "step_complete"; html?: string }
   | {
@@ -50,6 +66,18 @@ export type PipelineEvent =
       targetSection?: string;
     }
   | { type: "css_patch_applied"; ruleCount: number; css: string; scoped: boolean }
+  | {
+      type: "truncated";
+      canContinue: boolean;
+      attemptsLeft: number;
+      partialChars: number;
+    }
+  | {
+      type: "tokens";
+      mode: "create" | "polish" | "continue";
+      prompt: number;
+      completion: number;
+    }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
@@ -180,6 +208,42 @@ async function obtainPlan(
   return { plan: synthetic, cached: false };
 }
 
+/**
+ * Безопасно извлечь usage из результата streamText (у разных провайдеров
+ * могут быть разные ключи, иногда undefined).
+ */
+async function readUsage(
+  result: { usage: Promise<unknown> | unknown },
+): Promise<{ prompt: number; completion: number }> {
+  try {
+    const raw = (await result.usage) as
+      | {
+          promptTokens?: number;
+          inputTokens?: number;
+          completionTokens?: number;
+          outputTokens?: number;
+        }
+      | undefined;
+    if (!raw) return { prompt: 0, completion: 0 };
+    return {
+      prompt: raw.promptTokens ?? raw.inputTokens ?? 0,
+      completion: raw.completionTokens ?? raw.outputTokens ?? 0,
+    };
+  } catch {
+    return { prompt: 0, completion: 0 };
+  }
+}
+
+async function readFinishReason(
+  result: { finishReason: Promise<unknown> | unknown },
+): Promise<string> {
+  try {
+    return String((await result.finishReason) ?? "unknown");
+  } catch {
+    return "unknown";
+  }
+}
+
 export async function* executeHtmlSimple(
   memory: SessionMemory,
   userMessage: string,
@@ -199,6 +263,9 @@ export async function* executeHtmlSimple(
   const model = getModel(provider);
   const startMs = Date.now();
   metrics.generationStarted("create", provider.id);
+
+  // Сброс предыдущего truncation при новом create-запуске
+  clearTruncation(memory.sessionId);
 
   let currentPlan: Plan | undefined;
   let currentTemplateId: string | undefined;
@@ -235,12 +302,28 @@ export async function* executeHtmlSimple(
   }
 
   const template = getTemplateById(currentPlan.suggested_template_id) ?? getFallbackTemplate();
-  const templateHtml = loadTemplateHtmlForLlm(template.id);
+  const rawTemplateHtml = loadTemplateHtmlForLlm(template.id);
   memory.templateId = template.id;
   currentTemplateId = template.id;
 
   yield { type: "template_selected", templateId: template.id, templateName: template.name };
   metrics.templateSelected(template.id);
+
+  // ─── Template pruning: вырезаем секции которых нет в plan.sections ───
+  const pruneResult = pruneTemplateForPlan(rawTemplateHtml, currentPlan.sections);
+  const templateHtml = pruneResult.html;
+  if (pruneResult.removed.length > 0) {
+    logger.info(
+      SCOPE,
+      `Pruned ${pruneResult.removed.length} sections from ${template.id}: removed=[${pruneResult.removed.join(", ")}], kept=[${pruneResult.kept.join(", ")}], saved=${rawTemplateHtml.length - templateHtml.length}ch`,
+    );
+    metrics.templatePruned(pruneResult.removed.length);
+    yield {
+      type: "template_pruned",
+      removed: pruneResult.removed,
+      kept: pruneResult.kept,
+    };
+  }
 
   yield {
     type: "step_start",
@@ -291,17 +374,73 @@ export async function* executeHtmlSimple(
       abortSignal: signal,
     });
 
-    let fullHtml = "";
+    let rawHtml = "";
     for await (const delta of result.textStream) {
-      fullHtml += delta;
+      rawHtml += delta;
       yield { type: "text", text: delta };
     }
 
-    fullHtml = stripCodeFences(fullHtml);
+    const finishReason = await readFinishReason(result);
+    const usage = await readUsage(result);
+    if (usage.prompt > 0 || usage.completion > 0) {
+      metrics.tokensUsed("create", "prompt", usage.prompt);
+      metrics.tokensUsed("create", "completion", usage.completion);
+      yield {
+        type: "tokens",
+        mode: "create",
+        prompt: usage.prompt,
+        completion: usage.completion,
+      };
+    }
+
+    const totalMs = Date.now() - startMs;
+
+    if (finishReason === "length") {
+      // Truncated — сохраняем raw для continuation, отдаём preview
+      metrics.generationTruncated("create");
+      const rawForTail = cleanRawForTail(rawHtml);
+      setTruncation(memory.sessionId, {
+        mode: "create",
+        userMessage: sanitized,
+        plan: currentPlan,
+        templateId: currentTemplateId,
+        partialHtml: rawForTail,
+        attempt: 0,
+        providerId: provider.id,
+      });
+      const preview = stripCodeFences(rawHtml);
+      memory.currentHtml = preview;
+      memory.updatedAt = Date.now();
+      updateSessionHtml(memory.sessionId, preview);
+      metrics.generationCompleted("create", provider.id, totalMs);
+      recordGeneration({
+        sessionId: memory.sessionId,
+        mode: "create",
+        outcome: "success",
+        provider: provider.id,
+        model: provider.defaultModel,
+        durationMs: totalMs,
+        userMessage: sanitized,
+        plan: currentPlan,
+        templateId: currentTemplateId,
+        planCached: planCachedFlag,
+        errorReason: "truncated",
+      });
+      yield {
+        type: "truncated",
+        canContinue: true,
+        attemptsLeft: MAX_CONTINUATION_ATTEMPTS,
+        partialChars: rawForTail.length,
+      };
+      yield { type: "step_complete", html: preview };
+      return;
+    }
+
+    // Нормальное завершение
+    const fullHtml = stripCodeFences(rawHtml);
     memory.currentHtml = fullHtml;
     memory.updatedAt = Date.now();
     updateSessionHtml(memory.sessionId, fullHtml);
-    const totalMs = Date.now() - startMs;
     metrics.generationCompleted("create", provider.id, totalMs);
     recordGeneration({
       sessionId: memory.sessionId,
@@ -336,6 +475,155 @@ export async function* executeHtmlSimple(
   }
 }
 
+export async function* executeHtmlContinue(
+  memory: SessionMemory,
+  signal: AbortSignal,
+  options: OrchestratorOptions = {},
+): AsyncGenerator<PipelineEvent> {
+  const t = memory.truncation;
+  if (!t) {
+    yield {
+      type: "error",
+      message: "Нет оборванной генерации для продолжения. Сначала создай сайт.",
+    };
+    return;
+  }
+  if (t.attempt >= MAX_CONTINUATION_ATTEMPTS) {
+    yield {
+      type: "error",
+      message: `Достигнут лимит продолжений (${MAX_CONTINUATION_ATTEMPTS}). HTML зафинализирован через repair. Создай новую сессию или продолжи через polish.`,
+    };
+    return;
+  }
+
+  const provider = getPreferredProvider(options.providerOverride);
+  if (!provider) {
+    yield { type: "error", message: "Нет доступного LLM провайдера." };
+    return;
+  }
+
+  const model = getModel(provider);
+  const startMs = Date.now();
+  const nextAttempt = t.attempt + 1;
+  metrics.generationStarted("continue", provider.id);
+
+  yield {
+    type: "step_start",
+    roleName: `Продолжение (попытка ${nextAttempt}/${MAX_CONTINUATION_ATTEMPTS})`,
+    model: provider.defaultModel,
+    provider: provider.id,
+  };
+
+  const tail = extractTail(t.partialHtml, CONTINUATION_TAIL_CHARS);
+  const userPrompt = buildContinuationUserMessage({
+    userMessage: t.userMessage,
+    plan: t.plan,
+    tail,
+  });
+
+  try {
+    const estimatedInputChars =
+      CONTINUATION_SYSTEM_PROMPT.length + userPrompt.length + 200;
+    const maxOutput = calcMaxOutput(provider, estimatedInputChars);
+
+    const result = await streamText({
+      model,
+      system: CONTINUATION_SYSTEM_PROMPT,
+      prompt: userPrompt,
+      maxOutputTokens: maxOutput,
+      temperature: 0.3,
+      stopSequences: HTML_STOP_SEQUENCES,
+      abortSignal: signal,
+    });
+
+    let continuation = "";
+    for await (const delta of result.textStream) {
+      continuation += delta;
+      yield { type: "text", text: delta };
+    }
+
+    const finishReason = await readFinishReason(result);
+    const usage = await readUsage(result);
+    if (usage.prompt > 0 || usage.completion > 0) {
+      metrics.tokensUsed("continue", "prompt", usage.prompt);
+      metrics.tokensUsed("continue", "completion", usage.completion);
+      yield {
+        type: "tokens",
+        mode: "continue",
+        prompt: usage.prompt,
+        completion: usage.completion,
+      };
+    }
+
+    const cleanedContinuation = cleanRawForTail(continuation);
+    const joined = joinPartialAndContinuation(t.partialHtml, cleanedContinuation);
+    const totalMs = Date.now() - startMs;
+
+    if (finishReason === "length") {
+      // Всё ещё не влезло — обновляем truncation, предлагаем ещё continue
+      metrics.generationTruncated("continue");
+      setTruncation(memory.sessionId, {
+        ...t,
+        partialHtml: joined,
+        attempt: nextAttempt,
+      });
+      const preview = stripCodeFences(joined);
+      memory.currentHtml = preview;
+      memory.updatedAt = Date.now();
+      updateSessionHtml(memory.sessionId, preview);
+      metrics.generationCompleted("continue", provider.id, totalMs);
+      recordGeneration({
+        sessionId: memory.sessionId,
+        mode: "create",
+        outcome: "success",
+        provider: provider.id,
+        model: provider.defaultModel,
+        durationMs: totalMs,
+        userMessage: t.userMessage,
+        plan: t.plan,
+        templateId: t.templateId,
+        errorReason: `continue_${nextAttempt}_truncated`,
+      });
+      yield {
+        type: "truncated",
+        canContinue: nextAttempt < MAX_CONTINUATION_ATTEMPTS,
+        attemptsLeft: MAX_CONTINUATION_ATTEMPTS - nextAttempt,
+        partialChars: joined.length,
+      };
+      yield { type: "step_complete", html: preview };
+      return;
+    }
+
+    // Финальное завершение — чистим и отдаём
+    const finalHtml = stripCodeFences(joined);
+    memory.currentHtml = finalHtml;
+    memory.updatedAt = Date.now();
+    updateSessionHtml(memory.sessionId, finalHtml);
+    clearTruncation(memory.sessionId);
+    metrics.generationCompleted("continue", provider.id, totalMs);
+    recordGeneration({
+      sessionId: memory.sessionId,
+      mode: "create",
+      outcome: "success",
+      provider: provider.id,
+      model: provider.defaultModel,
+      durationMs: totalMs,
+      userMessage: t.userMessage,
+      plan: t.plan,
+      templateId: t.templateId,
+      errorReason: `continue_${nextAttempt}_ok`,
+    });
+    yield { type: "step_complete", html: finalHtml };
+  } catch (err) {
+    if ((err as Error).name === "AbortError") return;
+    metrics.generationFailed("continue", "continue_error");
+    yield {
+      type: "error",
+      message: `Ошибка продолжения: ${(err as Error).message}`,
+    };
+  }
+}
+
 export async function* executeHtmlPolish(
   memory: SessionMemory,
   userRequest: string,
@@ -352,6 +640,9 @@ export async function* executeHtmlPolish(
     yield { type: "error", message: "Нет доступного LLM провайдера. Запусти LM Studio." };
     return;
   }
+
+  // Polish сбрасывает ожидающее truncation (юзер решил не продолжать)
+  clearTruncation(memory.sessionId);
 
   const model = getModel(provider);
   const startMs = Date.now();
@@ -452,17 +743,70 @@ export async function* executeHtmlPolish(
       abortSignal: signal,
     });
 
-    let fullHtml = "";
+    let rawHtml = "";
     for await (const delta of result.textStream) {
-      fullHtml += delta;
+      rawHtml += delta;
       yield { type: "text", text: delta };
     }
 
-    fullHtml = stripCodeFences(fullHtml);
+    const finishReason = await readFinishReason(result);
+    const usage = await readUsage(result);
+    if (usage.prompt > 0 || usage.completion > 0) {
+      metrics.tokensUsed("polish", "prompt", usage.prompt);
+      metrics.tokensUsed("polish", "completion", usage.completion);
+      yield {
+        type: "tokens",
+        mode: "polish",
+        prompt: usage.prompt,
+        completion: usage.completion,
+      };
+    }
+
+    const totalMs = Date.now() - startMs;
+
+    if (finishReason === "length") {
+      metrics.generationTruncated("polish");
+      const rawForTail = cleanRawForTail(rawHtml);
+      setTruncation(memory.sessionId, {
+        mode: "polish",
+        userMessage: sanitizedRequest,
+        templateId: memory.templateId,
+        partialHtml: rawForTail,
+        attempt: 0,
+        providerId: provider.id,
+      });
+      const preview = stripCodeFences(rawHtml);
+      memory.currentHtml = preview;
+      memory.updatedAt = Date.now();
+      updateSessionHtml(memory.sessionId, preview);
+      metrics.generationCompleted("polish", provider.id, totalMs);
+      recordGeneration({
+        sessionId: memory.sessionId,
+        mode: "polish",
+        outcome: "success",
+        provider: provider.id,
+        model: provider.defaultModel,
+        durationMs: totalMs,
+        userMessage: sanitizedRequest,
+        templateId: memory.templateId,
+        polishIntent: "full_rewrite",
+        polishTargetSection: targetSection,
+        errorReason: "truncated",
+      });
+      yield {
+        type: "truncated",
+        canContinue: true,
+        attemptsLeft: MAX_CONTINUATION_ATTEMPTS,
+        partialChars: rawForTail.length,
+      };
+      yield { type: "step_complete", html: preview };
+      return;
+    }
+
+    const fullHtml = stripCodeFences(rawHtml);
     memory.currentHtml = fullHtml;
     memory.updatedAt = Date.now();
     updateSessionHtml(memory.sessionId, fullHtml);
-    const totalMs = Date.now() - startMs;
     metrics.generationCompleted("polish", provider.id, totalMs);
     recordGeneration({
       sessionId: memory.sessionId,
@@ -495,6 +839,5 @@ export async function* executeHtmlPolish(
     });
     yield { type: "error", message: `Ошибка полировщика: ${(err as Error).message}` };
   }
-  // Не допускаем неиспользуемого reason-flag
   void reason;
 }

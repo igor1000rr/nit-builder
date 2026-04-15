@@ -1,5 +1,5 @@
 /**
- * Универсальное RAG-хранилище: JSONL на диске + in-memory Map + cosine search.
+ * Универсальное RAG-хранилище: JSONL на диске + in-memory Map + cosine search + BM25.
  *
  * Design choices:
  * - До ~3000 записей in-memory O(N) поиск даёт <20ms на 768-dim embeddings.
@@ -15,6 +15,12 @@
  *   Embedding считается от contextualText ?? text (graceful degradation).
  *   На стороне поиска query тоже префиксируется через extractQueryContext.
  *
+ * BM25 (Tier 2 step 3):
+ * - Отдельный inverted index по raw text (НЕ contextualText — BM25 ловит термы
+ *   по совпадению, префикс [niche] только зашумит терм-фреквенции).
+ * - Строится лениво при первом bm25Search после ensureLoaded.
+ * - Перестраивается при addDocument (любой mutation invalidates index).
+ *
  * Категории документов:
  * - plan_example     — (query → полный Plan) для few-shot планировщика
  * - hero_headline    — готовые hero-фразы по нишам
@@ -27,6 +33,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { logger } from "~/lib/utils/logger";
 import { embedText, isRagDisabled } from "~/lib/services/ragEmbeddings";
+import { BM25Index, type BM25Result } from "~/lib/services/bm25";
 
 const SCOPE = "ragStore";
 const STORE_DEFAULT_PATH = "/tmp/nit-rag.jsonl";
@@ -70,9 +77,15 @@ export type SearchResult = {
   score: number;
 };
 
+export type BM25SearchResult = {
+  doc: RagDocument;
+  score: number;
+};
+
 const documents = new Map<string, RagDocument>();
 let loaded = false;
 let loadPromise: Promise<void> | null = null;
+let bm25Index: BM25Index | null = null;
 
 function getStorePath(): string {
   return process.env.NIT_RAG_PATH ?? STORE_DEFAULT_PATH;
@@ -111,6 +124,20 @@ async function ensureLoaded(): Promise<void> {
     });
   }
   await loadPromise;
+}
+
+function invalidateBM25(): void {
+  bm25Index = null;
+}
+
+function ensureBM25Index(): BM25Index {
+  if (bm25Index) return bm25Index;
+  const docs = Array.from(documents.values())
+    .filter((d) => !d.metadata.isSentinel)
+    .map((d) => ({ id: d.id, text: d.text }));
+  bm25Index = new BM25Index(docs);
+  logger.info(SCOPE, `Built BM25 index for ${docs.length} docs`);
+  return bm25Index;
 }
 
 function cosine(a: number[], b: number[]): number {
@@ -196,6 +223,7 @@ export async function addDocument(input: {
   }
 
   documents.set(id, doc);
+  invalidateBM25();
 
   if (!input.skipPersist) {
     try {
@@ -246,6 +274,36 @@ export async function search(
   return scored.slice(0, k);
 }
 
+/**
+ * BM25 lexical search. Не требует embedding — синхронный поиск по индексу.
+ * Индекс строится лениво при первом вызове.
+ */
+export async function bm25Search(
+  query: string,
+  opts: { k?: number; category?: RagCategory; filter?: (doc: RagDocument) => boolean } = {},
+): Promise<BM25SearchResult[]> {
+  if (isRagDisabled()) return [];
+  await ensureLoaded();
+  if (documents.size === 0) return [];
+
+  const k = opts.k ?? 3;
+  const index = ensureBM25Index();
+  // Берём больше из BM25 и фильтруем в ts (индекс общий по всем категориям)
+  const fetchK = opts.category ? k * 4 : k;
+  const raw: BM25Result[] = index.search(query, fetchK);
+
+  const results: BM25SearchResult[] = [];
+  for (const r of raw) {
+    const doc = documents.get(r.id);
+    if (!doc) continue;
+    if (opts.category && doc.category !== opts.category) continue;
+    if (opts.filter && !opts.filter(doc)) continue;
+    results.push({ doc, score: r.score });
+    if (results.length >= k) break;
+  }
+  return results;
+}
+
 export function getStats(): { total: number; byCategory: Record<string, number> } {
   const byCategory: Record<string, number> = {};
   for (const doc of documents.values()) {
@@ -259,4 +317,5 @@ export async function _resetForTests(): Promise<void> {
   documents.clear();
   loaded = false;
   loadPromise = null;
+  bm25Index = null;
 }

@@ -5,51 +5,54 @@
  *   ce6f1ed: фиксированный k=2, threshold 0.55, top-2 если выше порога
  *   6b47c9b: adaptive k по top-1 score + компактный TOON-формат
  *   d34a4ed: contextual retrieval — query префиксируется [niche|mood] перед embed
- *   HEAD:    cross-encoder reranker поверх cosine кандидатов
+ *   7dce2fc: cross-encoder reranker поверх cosine кандидатов
+ *   HEAD:    hybrid BM25 + dense с RRF fusion перед reranker
  *
- * Двухэтапный pipeline:
- *   1. Cosine top-CANDIDATE_POOL_SIZE (быстрый retrieval, вкл. contextual prefix)
- *   2. Cross-encoder rerank top-RERANK_POOL_SIZE из кандидатов (точный перевзвес)
- *   3. Adaptive k по top-1 rerank score → финальный набор примеров
+ * Трёхэтапный pipeline:
+ *   1. Параллельно: cosine top-N (вкл. contextual) + BM25 top-N
+ *   2. RRF fusion: объединяем ранжирования в единый топ → берём top-RERANK_POOL
+ *   3. Cross-encoder rerank этого пула → финальный выбор adaptive k
  *
- * Adaptive логика. Пороги разные для cosine vs rerank — cross-encoder
- * выдаёт более экстремальные scores (релевантные → 0.9+, шум → <0.1):
+ * Почему BM25 рядом с dense:
+ *   - dense эмбеддинги теряют редкие точные термины: BMW, IELTS 7.0, M&A,
+ *     КБЖУ, имена городов, версии. BM25 это ловит идеально через IDF.
+ *   - dense ловит семантические синонимы и перефразировки. RRF объединяет
+ *     их без нормализации scores и без weight tuning.
  *
+ * Adaptive логика. Пороги:
  *   COSINE режим (fallback):              RERANK режим (default):
  *     >= 0.85    → k=1                       >= 0.80    → k=1
  *     0.65-0.85  → k=2                       0.40-0.80  → k=2
  *     0.55-0.65  → k=3                       0.20-0.40  → k=3
  *     < 0.55     → k=0                       < 0.20     → k=0
  *
- * NIT_FEWSHOT_MAX_K (default 3) — потолок adaptive выбора.
+ * NIT_FEWSHOT_MAX_K (default 3) — потолок adaptive выбора
  * NIT_CONTEXTUAL_RETRIEVAL_ENABLED (default 1) — kill-switch контекста
- * NIT_RERANKER_ENABLED (default 1) — kill-switch reranker (в ragReranker.ts)
+ * NIT_RERANKER_ENABLED (default 1) — kill-switch reranker
+ * NIT_HYBRID_BM25_ENABLED (default 1) — kill-switch BM25 fusion
  */
 
-import { search, type SearchResult } from "~/lib/services/ragStore";
+import { search, bm25Search, type SearchResult, type BM25SearchResult } from "~/lib/services/ragStore";
 import { ensureSeeded } from "~/lib/services/ragBootstrap";
 import { logger } from "~/lib/utils/logger";
 import { formatPlanCompact, approxTokenCount } from "~/lib/services/compactPlanFormat";
 import { buildContextualText, extractQueryContext } from "~/lib/services/contextualEmbed";
 import { rerank, isRerankerDisabled } from "~/lib/services/ragReranker";
+import { reciprocalRankFusion } from "~/lib/services/rrfFusion";
 import type { Plan } from "~/lib/utils/planSchema";
 
 const SCOPE = "fewShotBuilder";
 
-// === Cosine режим (fallback когда reranker недоступен) ===
 const COSINE_MIN = 0.55;
 const COSINE_MID = 0.65;
 const COSINE_HIGH = 0.85;
 
-// === Rerank режим (default) ===
-// Cross-encoder выдаёт более polarized scores: релевант → высоко, шум → низко.
-// Пороги выведены эмпирически на bge-reranker-v2-m3 и наших 24 seed-нишах.
 const RERANK_MIN = 0.20;
 const RERANK_MID = 0.40;
 const RERANK_HIGH = 0.80;
 
-const CANDIDATE_POOL_SIZE = 6;  // cosine этап
-const RERANK_POOL_SIZE = 6;     // сколько отправляем в reranker (обычно все cosine кандидаты)
+const CANDIDATE_POOL_SIZE = 6;     // сколько берём из cosine и BM25 каждый
+const RERANK_POOL_SIZE = 6;        // сколько отправляем в reranker после RRF
 
 function getMaxK(): number {
   const newK = process.env.NIT_FEWSHOT_MAX_K;
@@ -65,7 +68,10 @@ function isContextualRetrievalEnabled(): boolean {
   return process.env.NIT_CONTEXTUAL_RETRIEVAL_ENABLED !== "0";
 }
 
-/** Cosine пороги (fallback). Pure function. */
+function isHybridBM25Enabled(): boolean {
+  return process.env.NIT_HYBRID_BM25_ENABLED !== "0";
+}
+
 export function decideAdaptiveK(topScore: number, maxK: number = 3): number {
   if (topScore >= COSINE_HIGH) return Math.min(1, maxK);
   if (topScore >= COSINE_MID) return Math.min(2, maxK);
@@ -73,7 +79,6 @@ export function decideAdaptiveK(topScore: number, maxK: number = 3): number {
   return 0;
 }
 
-/** Rerank пороги (default когда cross-encoder работает). Pure function. */
 export function decideAdaptiveKFromRerank(topScore: number, maxK: number = 3): number {
   if (topScore >= RERANK_HIGH) return Math.min(1, maxK);
   if (topScore >= RERANK_MID) return Math.min(2, maxK);
@@ -82,23 +87,47 @@ export function decideAdaptiveKFromRerank(topScore: number, maxK: number = 3): n
 }
 
 export type FewShotResult = {
-  /** Собранный блок для вставки в Planner system prompt. "" если нет релевантных. */
   block: string;
-  /** Сколько примеров реально вошло в блок (для SSE event и метрик). */
   count: number;
-  /** Скор лучшего матча. Будет rerank score если реранкер работал, иначе cosine. */
   topScore: number;
-  /** Оценка токенов в block. */
   approxTokens: number;
-  /** Угаданная ниша из query (для дебага). */
   detectedNiche?: string;
-  /** Был ли применён cross-encoder rerank (для дебага и eval-метрик). */
   reranked: boolean;
+  /** Использовался ли hybrid BM25+dense fusion (для дебага и eval). */
+  hybrid: boolean;
 };
 
 /**
- * Основная функция. Cosine → (опционально) rerank → adaptive k → compact format.
+ * Объединяет cosine + BM25 результаты в единый ranking через RRF.
+ * Возвращает SearchResult в порядке RRF (id присутствующие в любом из источников).
+ * Оригинальный cosine score возвращается для доков из cosine; BM25-only доки
+ * получают score=0 (они всё равно пойдут в reranker, score их перевзвесит).
  */
+function fuseRankings(
+  cosine: SearchResult[],
+  bm25: BM25SearchResult[],
+): SearchResult[] {
+  const cosineRanking = cosine.map((r) => r.doc.id);
+  const bm25Ranking = bm25.map((r) => r.doc.id);
+
+  const fused = reciprocalRankFusion([cosineRanking, bm25Ranking]);
+
+  const docById = new Map<string, SearchResult>();
+  for (const r of cosine) docById.set(r.doc.id, r);
+  for (const r of bm25) {
+    if (!docById.has(r.doc.id)) {
+      docById.set(r.doc.id, { doc: r.doc, score: 0 });
+    }
+  }
+
+  const result: SearchResult[] = [];
+  for (const f of fused) {
+    const sr = docById.get(f.id);
+    if (sr) result.push(sr);
+  }
+  return result;
+}
+
 export async function buildFewShotPlansAdaptive(
   query: string,
   signal?: AbortSignal,
@@ -109,6 +138,7 @@ export async function buildFewShotPlansAdaptive(
     topScore: 0,
     approxTokens: 0,
     reranked: false,
+    hybrid: false,
   };
 
   try {
@@ -125,28 +155,38 @@ export async function buildFewShotPlansAdaptive(
       }
     }
 
-    // === Шаг 2: Cosine top-N ===
-    const cosineCandidates = await search(query, {
-      k: CANDIDATE_POOL_SIZE,
-      category: "plan_example",
-      signal,
-      queryEmbedText,
-    });
+    // === Шаг 2: Параллельно cosine + BM25 ===
+    const useHybrid = isHybridBM25Enabled();
+    const [cosineCandidates, bm25Candidates] = await Promise.all([
+      search(query, {
+        k: CANDIDATE_POOL_SIZE,
+        category: "plan_example",
+        signal,
+        queryEmbedText,
+      }),
+      useHybrid
+        ? bm25Search(query, { k: CANDIDATE_POOL_SIZE, category: "plan_example" })
+        : Promise.resolve([] as BM25SearchResult[]),
+    ]);
 
-    if (cosineCandidates.length === 0) {
+    if (cosineCandidates.length === 0 && bm25Candidates.length === 0) {
       return { ...empty, detectedNiche };
     }
 
-    // === Шаг 3: Cross-encoder rerank (если доступен) ===
+    // === Шаг 3: RRF fusion (если hybrid включен) или только cosine ===
+    const fusedCandidates: SearchResult[] = useHybrid
+      ? fuseRankings(cosineCandidates, bm25Candidates)
+      : cosineCandidates;
+
+    if (fusedCandidates.length === 0) return { ...empty, detectedNiche };
+
+    // === Шаг 4: Cross-encoder rerank ===
     let finalCandidates: Array<{ result: SearchResult; finalScore: number }>;
     let usedRerank = false;
 
     if (!isRerankerDisabled()) {
-      const rerankInput = cosineCandidates.slice(0, RERANK_POOL_SIZE).map((c) => ({
+      const rerankInput = fusedCandidates.slice(0, RERANK_POOL_SIZE).map((c) => ({
         id: c.doc.id,
-        // Для reranker подаём исходный query (seed) — это то что описывает бизнес,
-        // а не contextualText с префиксом [niche]. Cross-encoder сам выведёт релевантность
-        // из содержания.
         text: (c.doc.metadata as { query?: string }).query ?? c.doc.text,
       }));
       const rerankScores = await rerank(query, rerankInput, signal);
@@ -154,19 +194,20 @@ export async function buildFewShotPlansAdaptive(
       if (rerankScores) {
         usedRerank = true;
         const scoreById = new Map(rerankScores.map((r) => [r.id, r.score]));
-        finalCandidates = cosineCandidates
+        finalCandidates = fusedCandidates
           .slice(0, RERANK_POOL_SIZE)
           .map((c) => ({ result: c, finalScore: scoreById.get(c.doc.id) ?? 0 }))
           .sort((a, b) => b.finalScore - a.finalScore);
       } else {
-        // Reranker вернул null — fallback на cosine score
-        finalCandidates = cosineCandidates.map((c) => ({ result: c, finalScore: c.score }));
+        // Reranker fallback — используем cosine score (у BM25-only доков = 0,
+        // они уйдут в хвост — разумный fallback)
+        finalCandidates = fusedCandidates.map((c) => ({ result: c, finalScore: c.score }));
       }
     } else {
-      finalCandidates = cosineCandidates.map((c) => ({ result: c, finalScore: c.score }));
+      finalCandidates = fusedCandidates.map((c) => ({ result: c, finalScore: c.score }));
     }
 
-    // === Шаг 4: Adaptive k по top-1 финального score ===
+    // === Шаг 5: Adaptive k по top-1 финального score ===
     const topScore = finalCandidates[0]!.finalScore;
     const k = usedRerank
       ? decideAdaptiveKFromRerank(topScore, getMaxK())
@@ -175,12 +216,12 @@ export async function buildFewShotPlansAdaptive(
     if (k === 0) {
       logger.info(
         SCOPE,
-        `Top score ${topScore.toFixed(2)} below threshold (${usedRerank ? "rerank" : "cosine"}), skipping few-shot (niche=${detectedNiche ?? "?"})`,
+        `Top score ${topScore.toFixed(2)} below threshold (${usedRerank ? "rerank" : "cosine"}), skipping few-shot (niche=${detectedNiche ?? "?"}, hybrid=${useHybrid})`,
       );
-      return { ...empty, topScore, detectedNiche, reranked: usedRerank };
+      return { ...empty, topScore, detectedNiche, reranked: usedRerank, hybrid: useHybrid };
     }
 
-    // === Шаг 5: Форматирование блока ===
+    // === Шаг 6: Форматирование блока ===
     const selected = finalCandidates.slice(0, k);
     const formatted = selected
       .map((c, i) => {
@@ -193,14 +234,16 @@ export async function buildFewShotPlansAdaptive(
       .filter(Boolean)
       .join("\n\n");
 
-    if (!formatted) return { ...empty, topScore, detectedNiche, reranked: usedRerank };
+    if (!formatted) {
+      return { ...empty, topScore, detectedNiche, reranked: usedRerank, hybrid: useHybrid };
+    }
 
     const block = `\n\nПРИМЕРЫ ХОРОШИХ ПЛАНОВ ИЗ БАЗЫ (учись на структуре копирайта и конкретике фактов, но адаптируй под текущий запрос — не копируй дословно):\n${formatted}\n`;
     const approxTokens = approxTokenCount(block);
 
     logger.info(
       SCOPE,
-      `Few-shot: top=${topScore.toFixed(2)} (${usedRerank ? "rerank" : "cosine"}), k=${selected.length}, ~${approxTokens} tokens, niche=${detectedNiche ?? "?"}, contextual=${queryEmbedText ? "yes" : "no"}`,
+      `Few-shot: top=${topScore.toFixed(2)} (${usedRerank ? "rerank" : "cosine"}), k=${selected.length}, ~${approxTokens} tokens, niche=${detectedNiche ?? "?"}, contextual=${queryEmbedText ? "yes" : "no"}, hybrid=${useHybrid} (cos=${cosineCandidates.length}, bm25=${bm25Candidates.length})`,
     );
 
     return {
@@ -210,6 +253,7 @@ export async function buildFewShotPlansAdaptive(
       approxTokens,
       detectedNiche,
       reranked: usedRerank,
+      hybrid: useHybrid,
     };
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;

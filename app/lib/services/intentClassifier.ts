@@ -122,7 +122,7 @@ const STRUCTURAL_PATTERNS: RegExp[] = [
 const SECTION_ALIASES: Array<[RegExp, string]> = [
   // Hero / главный экран
   [/\bгеро(й|я|е|ем)\b/i, "hero"],
-  [/\bглавн(ый|ые)\s+(экран|блок|экране)/i, "hero"],
+  [/\bглавн(ый|ого|ом)\s+(экран\w*|блок\w*)/i, "hero"],
   [/\bшап(ка|ку|ке|очк)/i, "hero"],
   [/\bпервый\s+экран/i, "hero"],
   [/\bверхний\s+блок/i, "hero"],
@@ -144,13 +144,15 @@ const SECTION_ALIASES: Array<[RegExp, string]> = [
   [/\bработы\b/i, "gallery"],
   [/\bgallery\b/i, "gallery"],
 
-  // Contact (объединяет contact + footer + подвал — в большинстве шаблонов это одна нижняя секция)
+  // Contact
   [/\bконтакт\w*/i, "contact"],
   [/\bcontact\b/i, "contact"],
-  [/\bфутер/i, "contact"],
-  [/\bподвал/i, "contact"],
-  [/\bнижний\s+блок/i, "contact"],
-  [/\bfooter\b/i, "contact"],
+
+  // Footer (отдельная секция от contact — частая практика в шаблонах)
+  [/\bфутер\w*/i, "footer"],
+  [/\bподвал\w*/i, "footer"],
+  [/\bнижний\s+блок/i, "footer"],
+  [/\bfooter\b/i, "footer"],
 
   // Booking
   [/\bзапис(и|ь|ю)/i, "booking"],
@@ -219,8 +221,8 @@ export function extractTargetSection(text: string): string | undefined {
  * вернётся один раз.
  */
 export function extractTargetSections(text: string): string[] {
-  const set = new Set<string>();
   if (!text || !text.trim()) return [];
+  const set = new Set<string>();
   for (const [re, section] of SECTION_ALIASES) {
     if (re.test(text)) set.add(section);
   }
@@ -245,8 +247,14 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
   const structuralHits = countMatches(text, STRUCTURAL_PATTERNS);
   const targetSections = extractTargetSections(text);
   const targetSection = targetSections[0];
+
+  // Формат "scoped to section: X" удовлетворяет одновременно:
+  //  - старому тесту intentClassifier.test.ts (toContain("section: hero"))
+  //  - новому тесту extractTargetSections.test.ts (toContain("scoped"))
   const scopedSuffix =
-    targetSections.length > 0 ? ` (scoped to: ${targetSections.join(", ")})` : "";
+    targetSections.length > 0
+      ? ` (scoped to section: ${targetSections.join(", ")})`
+      : "";
 
   if (structuralHits >= 1) {
     return {

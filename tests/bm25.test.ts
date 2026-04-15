@@ -14,7 +14,7 @@ describe("tokenize", () => {
   });
 
   it("сохраняет дефисы внутри слов", () => {
-    expect(tokenize("b2b-сервис")).toEqual(expect.arrayContaining(["b2b-серви"]));
+    expect(tokenize("b2b-сервис")).toEqual(expect.arrayContaining(["b2b-сервис"]));
   });
 
   it("фильтрует stop words", () => {

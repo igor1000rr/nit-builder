@@ -15,10 +15,10 @@ describe("extractTargetSections", () => {
     expect(extractTargetSections("в тарифах увеличь шрифт")).toContain("pricing");
   });
 
-  it("распознаёт contact/footer", () => {
-    expect(extractTargetSections("футер сделай темнее")).toContain("contact");
+  it("распознаёт contact и footer как отдельные секции", () => {
+    expect(extractTargetSections("футер сделай темнее")).toContain("footer");
     expect(extractTargetSections("в контактах поменяй фон")).toContain("contact");
-    expect(extractTargetSections("подвал тёмный")).toContain("contact");
+    expect(extractTargetSections("подвал тёмный")).toContain("footer");
   });
 
   it("распознаёт testimonials", () => {

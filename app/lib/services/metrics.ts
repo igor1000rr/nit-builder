@@ -74,14 +74,12 @@ export const metrics = {
   generationFailed: (mode: "create" | "polish" | "continue", reason: string) => {
     incrementCounter("nit_generations_failed_total", { mode, reason });
   },
-  /** Генерация оборвалась по лимиту токенов (finish_reason=length). Ключ к калибровке maxOutputTokens. */
   generationTruncated: (mode: "create" | "polish" | "continue") => {
     incrementCounter("nit_generations_truncated_total", { mode });
   },
   templateSelected: (templateId: string) => {
     incrementCounter("nit_template_selections_total", { template: templateId });
   },
-  /** Сколько секций вырезали из шаблона до подачи в Coder (токен-экономия). */
   templatePruned: (removedCount: number) => {
     observeHistogram("nit_template_sections_pruned", removedCount, PRUNE_BUCKETS);
   },
@@ -109,23 +107,28 @@ export const metrics = {
   planCacheMiss: () => {
     incrementCounter("nit_plan_cache_misses_total");
   },
-  /** Skeleton-injection была попытана (вызывается на каждой create-генерации). */
   skeletonInjectAttempted: () => {
     incrementCounter("nit_skeleton_inject_attempted_total");
   },
-  /** Skeleton-injection успешна, Coder НЕ вызывался. */
   skeletonInjectSucceeded: (templateId: string, fillRatio: number) => {
     incrementCounter("nit_skeleton_inject_succeeded_total", { template: templateId });
     observeHistogram("nit_skeleton_inject_fill_ratio", fillRatio, FILL_RATIO_BUCKETS);
   },
-  /** Skeleton-injection пропущена — fallback на Coder. reason из InjectionResult. */
   skeletonInjectSkipped: (reason: string) => {
     incrementCounter("nit_skeleton_inject_skipped_total", { reason });
   },
-  /**
-   * Токены с реального usage-объекта из ai SDK. kind="prompt"|"completion".
-   * Счётчик+гистограмма: счётчик покажет суммарный burn, гистограмма — распределение.
-   */
+  /** Section-only polish был попытан (intent=full_rewrite + targetSection + section found). */
+  sectionPolishAttempted: () => {
+    incrementCounter("nit_section_polish_attempted_total");
+  },
+  /** Section-only polish успешен — full rewrite пропущен. */
+  sectionPolishSucceeded: (sectionId: string) => {
+    incrementCounter("nit_section_polish_succeeded_total", { section: sectionId });
+  },
+  /** Section-only polish пропущен/упал — fallback на full rewrite. */
+  sectionPolishSkipped: (reason: string) => {
+    incrementCounter("nit_section_polish_skipped_total", { reason });
+  },
   tokensUsed: (mode: "create" | "polish" | "continue", kind: "prompt" | "completion", count: number) => {
     if (count <= 0) return;
     incrementCounter("nit_tokens_total", { mode, kind }, count);

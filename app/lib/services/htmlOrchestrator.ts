@@ -57,6 +57,12 @@ import {
   isConstrainedDecodingEnabled,
 } from "~/lib/services/constrainedPlanGen";
 import { injectPlanIntoTemplate } from "~/lib/services/skeletonInjector";
+import {
+  isSectionPolishEnabled,
+  extractSection,
+  extractSectionFromResponse,
+  polishSectionStream,
+} from "~/lib/services/sectionPolish";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -77,6 +83,12 @@ export type PipelineEvent =
       targetSection?: string;
     }
   | { type: "css_patch_applied"; ruleCount: number; css: string; scoped: boolean }
+  | {
+      type: "section_polish_used";
+      sectionId: string;
+      sectionChars: number;
+      fullHtmlChars: number;
+    }
   | {
       type: "truncated";
       canContinue: boolean;
@@ -138,17 +150,6 @@ function stripCodeFences(text: string): string {
   return enrichSectionAnchors(repairTruncatedHtml(cleaned));
 }
 
-/**
- * Ядро Planner pipeline. Tier 2 порядок fallback-ов:
- *   1. plan cache check
- *   2. template retriever (shortlist)
- *   3. RAG few-shot (hybrid: cosine + BM25 + RRF + reranker, contextual prefix)
- *   4. двухшаговый reasoning (опционально через ENV)
- *   5. constrained decoding через LM Studio json_schema (XGrammar) — 100% валидный JSON
- *   6. fallback: AI SDK generateObject (prompt-engineering JSON mode)
- *   7. fallback: generateText + manual JSON parse
- *   8. synthetic plan как last resort
- */
 async function obtainPlan(
   model: ReturnType<typeof getModel>,
   sanitizedMessage: string,
@@ -475,9 +476,6 @@ export async function* executeHtmlSimple(
   yield { type: "template_selected", templateId: template.id, templateName: template.name };
   metrics.templateSelected(template.id);
 
-  // === Tier 3: Skeleton direct injection — пытаемся обойти Coder вовсе ===
-  // Используем чистый шаблон (без LLM-маркеров) и без prune — injection работает со всем
-  // исходным HTML и оставляет все секции (вырезать нежелательные можно потом в polish).
   metrics.skeletonInjectAttempted();
   const cleanTemplateHtml = loadTemplateHtml(template.id);
   const injection = injectPlanIntoTemplate(cleanTemplateHtml, currentPlan);
@@ -525,7 +523,6 @@ export async function* executeHtmlSimple(
   metrics.skeletonInjectSkipped(injection.reason);
   logger.info(SCOPE, `Skeleton-injection пропущена (${injection.reason}), вызываем Coder`);
 
-  // === Fallback: традиционный Coder pipeline ===
   const rawTemplateHtml = loadTemplateHtmlForLlm(template.id);
   const pruneResult = pruneTemplateForPlan(rawTemplateHtml, currentPlan.sections);
   const templateHtml = pruneResult.html;
@@ -911,6 +908,7 @@ export async function* executeHtmlPolish(
         templateId: memory.templateId,
         polishIntent: "css_patch",
         polishTargetSection: targetSection,
+        polishScope: "css",
         cssPatchRuleCount: result.ruleCount,
       });
 
@@ -930,6 +928,129 @@ export async function* executeHtmlPolish(
         SCOPE,
         `CSS patch failed (${(err as Error).message}), falling back to full rewrite`,
       );
+    }
+  }
+
+  // === Tier 3.5: section-only polish ===
+  // Если intent=full_rewrite + targetSection определён + секция найдена в HTML —
+  // отправляем Coder-у только её. Экономия 70-90% токенов на point-edit запросах.
+  if (intent === "full_rewrite" && targetSection && isSectionPolishEnabled()) {
+    const extracted = extractSection(memory.currentHtml, targetSection);
+    if (extracted.found) {
+      metrics.sectionPolishAttempted();
+      const fullHtmlChars = memory.currentHtml.length;
+      const sectionChars = extracted.sectionHtml.length;
+      logger.info(
+        SCOPE,
+        `Section-polish path: section="${targetSection}" (${sectionChars}ch) of full HTML (${fullHtmlChars}ch), savings=${Math.round((1 - sectionChars / fullHtmlChars) * 100)}%`,
+      );
+
+      metrics.generationStarted("polish", provider.id);
+      yield {
+        type: "step_start",
+        roleName: `Полировщик (секция "${targetSection}")`,
+        model: provider.defaultModel,
+        provider: provider.id,
+      };
+
+      try {
+        // Бюджет: ~2.5x от размера секции на completion (с запасом на расширение)
+        const sectionTokensEstimate = Math.ceil(sectionChars / 3);
+        const maxOutput = Math.min(
+          Math.max(sectionTokensEstimate * 3, 1500),
+          6000,
+        );
+
+        let rawText = "";
+        let polishUsage = { prompt: 0, completion: 0 };
+        let polishFinishReason = "unknown";
+
+        const polishGen = polishSectionStream({
+          model,
+          sectionHtml: extracted.sectionHtml,
+          sectionId: targetSection,
+          userRequest: sanitizedRequest,
+          signal,
+          maxOutputTokens: maxOutput,
+        });
+
+        for await (const ev of polishGen) {
+          if (ev.type === "delta") {
+            rawText += ev.text;
+            yield { type: "text", text: ev.text };
+          } else if (ev.type === "done") {
+            polishUsage = ev.result.usage;
+            polishFinishReason = ev.result.finishReason;
+          }
+        }
+
+        if (polishUsage.prompt > 0 || polishUsage.completion > 0) {
+          metrics.tokensUsed("polish", "prompt", polishUsage.prompt);
+          metrics.tokensUsed("polish", "completion", polishUsage.completion);
+          yield {
+            type: "tokens",
+            mode: "polish",
+            prompt: polishUsage.prompt,
+            completion: polishUsage.completion,
+          };
+        }
+
+        // Truncated section response — ответ не закроется тегом, fallback на full rewrite
+        if (polishFinishReason === "length") {
+          metrics.sectionPolishSkipped("truncated_response");
+          logger.warn(
+            SCOPE,
+            `Section-polish ответ оборван (${rawText.length}ch), fallback на full rewrite`,
+          );
+        } else {
+          const newSection = extractSectionFromResponse(rawText);
+          if (!newSection) {
+            metrics.sectionPolishSkipped("no_section_in_response");
+            logger.warn(
+              SCOPE,
+              `Section-polish: ответ модели не содержит <section>, fallback на full rewrite`,
+            );
+          } else {
+            const newFullHtml =
+              extracted.before + newSection + extracted.after;
+            const finalHtml = enrichSectionAnchors(newFullHtml);
+            memory.currentHtml = finalHtml;
+            memory.updatedAt = Date.now();
+            updateSessionHtml(memory.sessionId, finalHtml);
+            const totalMs = Date.now() - startMs;
+            metrics.sectionPolishSucceeded(targetSection);
+            metrics.generationCompleted("polish", provider.id, totalMs);
+            recordGeneration({
+              sessionId: memory.sessionId,
+              mode: "polish",
+              outcome: "success",
+              provider: provider.id,
+              model: provider.defaultModel,
+              durationMs: totalMs,
+              userMessage: sanitizedRequest,
+              templateId: memory.templateId,
+              polishIntent: "full_rewrite",
+              polishTargetSection: targetSection,
+              polishScope: "section",
+            });
+            yield {
+              type: "section_polish_used",
+              sectionId: targetSection,
+              sectionChars,
+              fullHtmlChars,
+            };
+            yield { type: "step_complete", html: finalHtml };
+            return;
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        metrics.sectionPolishSkipped("error");
+        logger.warn(
+          SCOPE,
+          `Section-polish failed (${(err as Error).message}), fallback на full rewrite`,
+        );
+      }
     }
   }
 
@@ -1007,6 +1128,7 @@ export async function* executeHtmlPolish(
         templateId: memory.templateId,
         polishIntent: "full_rewrite",
         polishTargetSection: targetSection,
+        polishScope: "full",
         errorReason: "truncated",
       });
       yield {
@@ -1035,6 +1157,7 @@ export async function* executeHtmlPolish(
       templateId: memory.templateId,
       polishIntent: "full_rewrite",
       polishTargetSection: targetSection,
+      polishScope: "full",
     });
     yield { type: "step_complete", html: fullHtml };
   } catch (err) {
@@ -1051,6 +1174,7 @@ export async function* executeHtmlPolish(
       templateId: memory.templateId,
       polishIntent: intent,
       polishTargetSection: targetSection,
+      polishScope: "full",
       errorReason: `polisher: ${(err as Error).message}`,
     });
     yield { type: "error", message: `Ошибка полировщика: ${(err as Error).message}` };

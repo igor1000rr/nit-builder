@@ -16,6 +16,7 @@ const RULE_COUNT_BUCKETS = [1, 2, 3, 5, 8, 13, 20];
 const TOKEN_BUCKETS = [100, 250, 500, 1000, 2000, 5000, 10_000, 20_000];
 const PRUNE_BUCKETS = [0, 1, 2, 3, 5, 8, 13];
 const FILL_RATIO_BUCKETS = [0.25, 0.5, 0.6, 0.75, 0.9, 1.0];
+const EXTENDED_SLOT_BUCKETS = [0, 1, 2, 3, 4];
 
 function counterKey(name: string, labels?: Record<string, string>): string {
   if (!labels) return name;
@@ -117,15 +118,21 @@ export const metrics = {
   skeletonInjectSkipped: (reason: string) => {
     incrementCounter("nit_skeleton_inject_skipped_total", { reason });
   },
-  /** Section-only polish был попытан (intent=full_rewrite + targetSection + section found). */
+  /**
+   * Сколько Tier 4 extended-слотов (pricing/faq/hours/contact) реально заполнено на этой генерации.
+   * Гистограмма 0..4 — покажет как часто Planner выдаёт расширенные поля и как часто
+   * шаблон поддерживает их структурно.
+   */
+  skeletonExtendedSlotsFilled: (count: number) => {
+    observeHistogram("nit_skeleton_extended_slots_filled", count, EXTENDED_SLOT_BUCKETS);
+  },
+  /** Section-only polish был попытан. */
   sectionPolishAttempted: () => {
     incrementCounter("nit_section_polish_attempted_total");
   },
-  /** Section-only polish успешен — full rewrite пропущен. */
   sectionPolishSucceeded: (sectionId: string) => {
     incrementCounter("nit_section_polish_succeeded_total", { section: sectionId });
   },
-  /** Section-only polish пропущен/упал — fallback на full rewrite. */
   sectionPolishSkipped: (reason: string) => {
     incrementCounter("nit_section_polish_skipped_total", { reason });
   },

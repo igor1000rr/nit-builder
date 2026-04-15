@@ -19,7 +19,13 @@
  * - Отдельный inverted index по raw text (НЕ contextualText — BM25 ловит термы
  *   по совпадению, префикс [niche] только зашумит терм-фреквенции).
  * - Строится лениво при первом bm25Search после ensureLoaded.
- * - Перестраивается при addDocument (любой mutation invalidates index).
+ * - Перестраивается при addDocument (любая mutation invalidates index).
+ *
+ * Matryoshka dim validation (Tier 4):
+ * - При изменении NIT_EMBEDDING_DIMS старые persisted embedding[] становятся stale.
+ *   ensureEmbedding() проверяет length и перевычисляет lazy если mismatch — новый
+ *   вектор остаётся in-memory (не персистится, чтобы не ломать JSONL обратный
+ *   откат). При ~30 docs в корпусе это ~3-5с одноразовый cold-start.
  *
  * Категории документов:
  * - plan_example     — (query → полный Plan) для few-shot планировщика
@@ -32,7 +38,11 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { logger } from "~/lib/utils/logger";
-import { embedText, isRagDisabled } from "~/lib/services/ragEmbeddings";
+import {
+  embedText,
+  isRagDisabled,
+  getTargetEmbeddingDims,
+} from "~/lib/services/ragEmbeddings";
 import { BM25Index, type BM25Result } from "~/lib/services/bm25";
 
 const SCOPE = "ragStore";
@@ -48,11 +58,6 @@ export type RagCategory =
 export type RagDocument = {
   id: string;
   text: string;
-  /**
-   * Опциональный текст с контекстным префиксом для embedding.
-   * Если задан — embedding считается от него; text используется только для отображения.
-   * Backward-compat: старые документы без поля работают как раньше (embed от text).
-   */
   contextualText?: string;
   category: RagCategory;
   metadata: Record<string, unknown>;
@@ -65,10 +70,6 @@ export type SearchOptions = {
   category?: RagCategory;
   filter?: (doc: RagDocument) => boolean;
   signal?: AbortSignal;
-  /**
-   * Если задан — этот текст используется для embedding query вместо raw query.
-   * Используется fewShotBuilder для contextual retrieval.
-   */
   queryEmbedText?: string;
 };
 
@@ -97,10 +98,22 @@ async function loadFromDisk(): Promise<void> {
     const content = await fs.readFile(p, "utf8");
     const lines = content.split("\n").filter(Boolean);
     let loaded_count = 0;
+    let staleEmbeddings = 0;
+    const targetDims = getTargetEmbeddingDims();
     for (const line of lines) {
       try {
         const doc = JSON.parse(line) as RagDocument;
         if (doc.id && doc.text && doc.category) {
+          // Matryoshka stale check: если ENV задан и dim не совпадает — сбрасываем embedding,
+          // ensureEmbedding перевычислит при первом search
+          if (
+            targetDims &&
+            doc.embedding &&
+            doc.embedding.length !== targetDims
+          ) {
+            doc.embedding = undefined;
+            staleEmbeddings++;
+          }
           documents.set(doc.id, doc);
           loaded_count++;
         }
@@ -108,7 +121,13 @@ async function loadFromDisk(): Promise<void> {
         // битая строка — пропуск
       }
     }
-    logger.info(SCOPE, `Loaded ${loaded_count} docs from ${p}`);
+    logger.info(
+      SCOPE,
+      `Loaded ${loaded_count} docs from ${p}` +
+        (staleEmbeddings > 0
+          ? `, invalidated ${staleEmbeddings} stale embeddings (target dims=${targetDims})`
+          : ""),
+    );
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       logger.warn(SCOPE, `Load failed: ${(err as Error).message}`);
@@ -166,6 +185,15 @@ async function ensureEmbedding(
   doc: RagDocument,
   signal?: AbortSignal,
 ): Promise<number[] | null> {
+  // Matryoshka dim validation: если length не совпадает с ENV — инвалидируем
+  const targetDims = getTargetEmbeddingDims();
+  if (
+    doc.embedding &&
+    targetDims &&
+    doc.embedding.length !== targetDims
+  ) {
+    doc.embedding = undefined;
+  }
   if (doc.embedding && doc.embedding.length > 0) return doc.embedding;
   // Используем contextualText если есть (Tier 2 contextual retrieval), иначе raw text
   const sourceText = doc.contextualText ?? doc.text;
@@ -212,7 +240,6 @@ export async function addDocument(input: {
 
   if (!input.skipEmbed) {
     try {
-      // Embed contextual версию если есть, иначе raw text
       const embedSource = doc.contextualText ?? doc.text;
       const vec = await embedText(embedSource);
       if (vec) doc.embedding = vec;
@@ -246,8 +273,6 @@ export async function search(
   const k = opts.k ?? 3;
   if (documents.size === 0) return [];
 
-  // queryEmbedText (если задан вызывающим) используется для contextual retrieval —
-  // это query с тем же префиксом который применялся при индексации seed-ов.
   const embedSource = opts.queryEmbedText ?? query;
 
   let qVec: number[] | null;
@@ -274,10 +299,6 @@ export async function search(
   return scored.slice(0, k);
 }
 
-/**
- * BM25 lexical search. Не требует embedding — синхронный поиск по индексу.
- * Индекс строится лениво при первом вызове.
- */
 export async function bm25Search(
   query: string,
   opts: { k?: number; category?: RagCategory; filter?: (doc: RagDocument) => boolean } = {},
@@ -288,7 +309,6 @@ export async function bm25Search(
 
   const k = opts.k ?? 3;
   const index = ensureBM25Index();
-  // Берём больше из BM25 и фильтруем в ts (индекс общий по всем категориям)
   const fetchK = opts.category ? k * 4 : k;
   const raw: BM25Result[] = index.search(query, fetchK);
 

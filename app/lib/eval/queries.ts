@@ -1,20 +1,25 @@
 /**
- * 30 hand-crafted eval queries покрывающих 24 ниши seed корпуса.
+ * 100 hand-crafted eval queries для measure-and-track качества Planner pipeline.
  *
  * Распределение:
- *   - 12 запросов "легкие" — короткие и прямые, должны иметь высокий
- *     similarity с одним из seed planExamples (k=1)
- *   - 12 запросов "средние" — переформулированные, между нишами
- *   - 6 запросов "сложные" — гибридные / неявные (тест на graceful k=0)
+ *   - 37 easy   — прямые попадания в seed niches, baseline для k=1 retrieval
+ *   - 37 medium — переформулировки, расширенные ниши, локализация
+ *   - 26 hard   — vague/гибриды/мультиязык/опечатки/regulated/long-form
  *
- * Не лепим expectedTemplateId везде — Planner имеет свободу выбора, важна
- * семантика плана, а не точное совпадение шаблона.
+ * Цель — поймать регрессии Planner-а на разных типах запросов:
+ *   • few-shot retrieval корректно подбирает релевантные seed-ы
+ *   • copywriting проходит quality-фильтры (нет банальностей, есть факты)
+ *   • template selection попадает в ту же нишу
+ *   • graceful degradation на vague/edge-case запросах
+ *
+ * expectedNiche='unknown' — не штраф если Planner выберет blank-landing,
+ *                          но контент всё равно должен пройти quality checks.
  */
 
 import type { EvalQuery } from "./types";
 
 export const EVAL_QUERIES: EvalQuery[] = [
-  // === Лёгкие (прямое попадание в seed) ===
+  // ═══ EASY (37): прямые попадания в seed-ниши ═══
   {
     id: "easy-coffee",
     query: "открываю небольшую кофейню в центре города, нужен сайт с меню и фотками",
@@ -99,8 +104,183 @@ export const EVAL_QUERIES: EvalQuery[] = [
     mustHaveSections: ["hero", "programs"],
     expectedKeywordsAny: ["английский", "репетитор"],
   },
+  {
+    id: "easy-bakery",
+    query: "пекарня с авторским хлебом на закваске и круассанами с утра",
+    expectedNiche: "bakery",
+    mustHaveSections: ["hero", "menu"],
+    expectedKeywordsAny: ["хлеб", "закваск", "пекарн", "круассан"],
+  },
+  {
+    id: "easy-yoga-retreat",
+    query: "йога-ретриты на природе на выходные с медитацией и вегетарианским питанием",
+    expectedNiche: "yoga-retreat",
+    mustHaveSections: ["hero", "programs"],
+    expectedKeywordsAny: ["йога", "ретрит", "медитац"],
+  },
+  {
+    id: "easy-architect",
+    query: "архитектурное бюро частные дома и интерьеры под ключ с авторским надзором",
+    expectedNiche: "architect",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["архитектур", "проект", "дом", "интерьер"],
+  },
+  {
+    id: "easy-veterinary",
+    query: "ветеринарная клиника круглосуточно вызов на дом и стационар",
+    expectedNiche: "veterinary",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["ветеринар", "клиник", "животн"],
+  },
+  {
+    id: "easy-dance-school",
+    query: "школа танцев бачата сальса кизомба для взрослых с нуля",
+    expectedNiche: "dance-school",
+    mustHaveSections: ["hero", "programs"],
+    expectedKeywordsAny: ["танц", "бачат", "сальс"],
+  },
+  {
+    id: "easy-massage",
+    query: "массажный салон спортивный и расслабляющий массаж по записи",
+    expectedNiche: "massage",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["массаж"],
+  },
+  {
+    id: "easy-coworking",
+    query: "коворкинг с переговорками и кофе-зоной аренда от часа до месяца",
+    expectedNiche: "coworking",
+    mustHaveSections: ["hero", "pricing"],
+    expectedKeywordsAny: ["коворкинг", "переговорк", "аренд"],
+  },
+  {
+    id: "easy-music-school",
+    query: "музыкальная школа гитара пианино вокал для детей и взрослых",
+    expectedNiche: "music-school",
+    mustHaveSections: ["hero", "programs"],
+    expectedKeywordsAny: ["музыкальн", "гитар", "пианино", "вокал"],
+  },
+  {
+    id: "easy-podcast",
+    query: "запись подкаста — студия с режиссёром и монтажом, аренда по часу",
+    expectedNiche: "podcast-studio",
+    mustHaveSections: ["hero", "pricing"],
+    expectedKeywordsAny: ["подкаст", "студи", "запис"],
+  },
+  {
+    id: "easy-craft-beer",
+    query: "крафтовая пивоварня собственное варение и тапрум на выходные",
+    expectedNiche: "craft-beer",
+    mustHaveSections: ["hero", "menu"],
+    expectedKeywordsAny: ["пивовар", "крафт", "пиво"],
+  },
+  {
+    id: "easy-translation",
+    query: "бюро переводов нотариальный перевод документов с легализацией",
+    expectedNiche: "translation",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["перевод", "нотариальн", "документ"],
+  },
+  {
+    id: "easy-podiatrist",
+    query: "подолог медицинский педикюр вросший ноготь и грибок",
+    expectedNiche: "podiatrist",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["подолог", "педикюр", "ноготь"],
+  },
+  {
+    id: "easy-mover",
+    query: "переезды квартирные и офисные с грузчиками и упаковкой",
+    expectedNiche: "moving",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["переезд", "грузчик"],
+  },
+  {
+    id: "easy-pottery",
+    query: "керамическая мастерская курсы и продажа посуды ручной работы",
+    expectedNiche: "pottery",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["керамик", "посуд", "ручной работы"],
+  },
+  {
+    id: "easy-sushi-takeaway",
+    query: "доставка суши и роллов по городу свежая рыба за 60 минут",
+    expectedNiche: "food-delivery",
+    mustHaveSections: ["hero", "menu"],
+    expectedKeywordsAny: ["суши", "ролл", "доставк"],
+  },
+  {
+    id: "easy-aesthetics",
+    query: "косметология аппаратная процедуры лица и тела врач косметолог",
+    expectedNiche: "aesthetics",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["косметолог", "аппаратн", "процедур"],
+  },
+  {
+    id: "easy-marketplace-seller",
+    query: "продаю товары на Wildberries нужен сайт-визитка для клиентов и партнёров",
+    expectedNiche: "ecommerce",
+    mustHaveSections: ["hero"],
+    expectedKeywordsAny: ["wildberries", "товар"],
+  },
+  {
+    id: "easy-furniture-craft",
+    query: "столярная мастерская мебель из массива на заказ и реставрация",
+    expectedNiche: "furniture-craft",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["мебель", "массив", "столяр"],
+  },
+  {
+    id: "easy-escape-room",
+    query: "квест в реальности эскейп-рум 3 локации для компаний 2-6 человек",
+    expectedNiche: "escape-room",
+    mustHaveSections: ["hero", "pricing"],
+    expectedKeywordsAny: ["квест", "эскейп"],
+  },
+  {
+    id: "easy-jewellery-handmade",
+    query: "ювелирные украшения ручной работы серебро и натуральные камни",
+    expectedNiche: "jewellery",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["ювелир", "украшен", "серебр"],
+  },
+  {
+    id: "easy-accountant",
+    query: "бухгалтерское обслуживание ИП и ООО на УСН удалённо по всей России",
+    expectedNiche: "accountant",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["бухгалт", "ИП", "ООО", "УСН"],
+  },
+  {
+    id: "easy-vape-shop",
+    query: "вейп-шоп жидкости и устройства большой выбор и тест-зона",
+    expectedNiche: "vape-shop",
+    mustHaveSections: ["hero", "menu"],
+    expectedKeywordsAny: ["вейп", "жидкост"],
+  },
+  {
+    id: "easy-handcraft-soap",
+    query: "натуральное мыло ручной работы без SLS подарочные наборы",
+    expectedNiche: "handmade",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["мыло", "натуральн", "ручной работы"],
+  },
+  {
+    id: "easy-eyewear",
+    query: "оптика подбор очков с измерением зрения дизайнерские оправы",
+    expectedNiche: "eyewear",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["очк", "оправ", "оптик"],
+  },
+  {
+    id: "easy-gym",
+    query: "тренажёрный зал силовое оборудование и кардио зона работаем 24/7",
+    expectedNiche: "fitness",
+    mustHaveSections: ["hero", "pricing"],
+    expectedKeywordsAny: ["тренажёр", "силов", "зал"],
+  },
 
-  // === Средние (переформулировки, новые ниши из v2) ===
+  // ═══ MEDIUM (37): переформулировки, edge-cases, локализация ═══
   {
     id: "med-ecom",
     query: "интернет-магазин женской одежды, casual стиль, доставка по городу",
@@ -185,8 +365,183 @@ export const EVAL_QUERIES: EvalQuery[] = [
     mustHaveSections: ["hero"],
     expectedKeywordsAny: ["цвет", "букет", "доставка"],
   },
+  {
+    id: "med-coffee-premium",
+    query: "элитная спешелти-кофейня с обжарщиком в зале и cupping-сессиями для знатоков",
+    expectedNiche: "coffee-shop",
+    mustHaveSections: ["hero", "menu"],
+    expectedKeywordsAny: ["спешелти", "обжарк", "cupping"],
+  },
+  {
+    id: "med-fitness-budget",
+    query: "недорогой тренажёрный зал на районе абонемент 1500 руб в месяц",
+    expectedNiche: "fitness",
+    mustHaveSections: ["hero", "pricing"],
+    expectedKeywordsAny: ["зал", "абонемент"],
+  },
+  {
+    id: "med-restaurant-asian",
+    query: "паназиатский ресторан wok ramen dimsum в стиле тайбэйских ночных рынков",
+    expectedNiche: "restaurant",
+    mustHaveSections: ["hero", "menu"],
+    expectedKeywordsAny: ["wok", "паназиат", "азиат"],
+  },
+  {
+    id: "med-saas-b2b-crm",
+    query: "B2B CRM для агентств недвижимости интеграция с amoCRM и YClients",
+    expectedNiche: "saas",
+    mustHaveSections: ["hero", "features"],
+    expectedKeywordsAny: ["CRM", "B2B", "недвижимост"],
+  },
+  {
+    id: "med-photographer-newborn",
+    query: "ньюборн фотограф съёмки малышей до 14 дней дома и в студии",
+    expectedNiche: "photographer",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["ньюборн", "малыш", "фотограф"],
+  },
+  {
+    id: "med-tutor-math",
+    query: "репетитор математики ОГЭ и ЕГЭ профильный 100% сдача за 3 месяца",
+    expectedNiche: "tutor",
+    mustHaveSections: ["hero", "programs"],
+    expectedKeywordsAny: ["математик", "ЕГЭ", "ОГЭ"],
+  },
+  {
+    id: "med-cleaning-elite",
+    query: "химчистка элитной мебели реставрация дорогих диванов и ковров на дому",
+    expectedNiche: "cleaning",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["химчистк", "диван", "ковр"],
+  },
+  {
+    id: "med-online-school-design",
+    query: "онлайн-курс веб-дизайна Figma с трудоустройством после выпуска",
+    expectedNiche: "online-school",
+    mustHaveSections: ["hero", "programs"],
+    expectedKeywordsAny: ["дизайн", "Figma", "трудоустр"],
+  },
+  {
+    id: "med-legal-startup",
+    query: "юрист для IT-стартапов договоры с инвесторами и опционные программы",
+    expectedNiche: "legal",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["юрист", "IT", "стартап"],
+  },
+  {
+    id: "med-psychologist-couples",
+    query: "семейный психолог парная терапия и кризисы отношений 5+ лет",
+    expectedNiche: "psychologist",
+    mustHaveSections: ["hero", "about"],
+    expectedKeywordsAny: ["семейн", "парная", "терапи"],
+  },
+  {
+    id: "med-dental-implant",
+    query: "имплантация зубов под ключ за 1 день по протоколу All-on-4",
+    expectedNiche: "dental",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["имплант", "зуб", "All-on"],
+  },
+  {
+    id: "med-handmade-leather",
+    query: "ремесленные изделия из кожи кошельки и ремни клеймо на заказ",
+    expectedNiche: "handmade",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["кож", "кошельк", "ремесл"],
+  },
+  {
+    id: "med-bakery-glutenfree",
+    query: "безглютеновая пекарня для людей с целиакией хлеб и торты",
+    expectedNiche: "bakery",
+    mustHaveSections: ["hero", "menu"],
+    expectedKeywordsAny: ["безглютенов", "целиак", "пекарн"],
+  },
+  {
+    id: "med-event-corporate",
+    query: "ведущий корпоративов в стиле stand-up для IT-компаний без баянов",
+    expectedNiche: "event-host",
+    mustHaveSections: ["hero"],
+    expectedKeywordsAny: ["ведущий", "корпоратив", "IT"],
+  },
+  {
+    id: "med-flowers-floristics",
+    query: "флористика для свадеб и фотосессий букеты в стиле bohemian",
+    expectedNiche: "flowers",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["флорист", "свадь", "букет"],
+  },
+  {
+    id: "med-massage-thai",
+    query: "тайский массаж традиционный 60 90 120 минут от мастеров из Бангкока",
+    expectedNiche: "massage",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["тайск", "массаж", "Бангкок"],
+  },
+  {
+    id: "med-wellness-retreat",
+    query: "wellness ретрит на Бали 7 дней йога медитация detox питание",
+    expectedNiche: "yoga-retreat",
+    mustHaveSections: ["hero", "programs"],
+    expectedKeywordsAny: ["wellness", "ретрит", "йога"],
+  },
+  {
+    id: "med-veterinary-exotic",
+    query: "ветврач для экзотических животных рептилии птицы хорьки приём в Москве",
+    expectedNiche: "veterinary",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["ветврач", "экзотическ", "рептили"],
+  },
+  {
+    id: "med-saas-edtech",
+    query: "edtech-платформа для языковых школ управление учениками и расписанием",
+    expectedNiche: "saas",
+    mustHaveSections: ["hero", "features"],
+    expectedKeywordsAny: ["edtech", "школ", "расписан"],
+  },
+  {
+    id: "med-coffee-mobile",
+    query: "мобильная кофейня — кофе на колёсах для офисов и фестивалей",
+    expectedNiche: "coffee-shop",
+    mustHaveSections: ["hero"],
+    expectedKeywordsAny: ["кофе", "мобильн"],
+  },
+  {
+    id: "med-architect-loft",
+    query: "дизайн интерьеров в стиле loft для квартир от 60 м² с отделкой под ключ",
+    expectedNiche: "architect",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["loft", "интерьер", "квартир"],
+  },
+  {
+    id: "med-music-school-jazz",
+    query: "школа джаза вокал импровизация и история американского джаза для взрослых",
+    expectedNiche: "music-school",
+    mustHaveSections: ["hero", "programs"],
+    expectedKeywordsAny: ["джаз", "вокал", "импровизац"],
+  },
+  {
+    id: "med-coworking-pet-friendly",
+    query: "коворкинг с зоной для собак и душевыми после велосипеда или бега",
+    expectedNiche: "coworking",
+    mustHaveSections: ["hero"],
+    expectedKeywordsAny: ["коворкинг", "собак"],
+  },
+  {
+    id: "med-translation-medical",
+    query: "медицинский перевод для пациентов на лечение в Германии и Израиле",
+    expectedNiche: "translation",
+    mustHaveSections: ["hero", "services"],
+    expectedKeywordsAny: ["медицинск", "перевод", "Германи"],
+  },
+  {
+    id: "med-pottery-workshop",
+    query: "мастер-классы по гончарному делу на двоих романтический вечер за 2 часа",
+    expectedNiche: "pottery",
+    mustHaveSections: ["hero", "pricing"],
+    expectedKeywordsAny: ["мастер-класс", "гончар", "керамик"],
+  },
 
-  // === Сложные (тест graceful degradation, гибриды) ===
+  // ═══ HARD (26): vague, гибриды, мультиязык, опечатки, regulated, long-form ═══
   {
     id: "hard-vague",
     query: "хочу красивый сайт для своего дела чтобы было современно",
@@ -220,5 +575,127 @@ export const EVAL_QUERIES: EvalQuery[] = [
     query: "премиальный спа отель в горах для пар на выходные",
     expectedNiche: "unknown",
     mustHaveSections: ["hero", "gallery"],
+  },
+  {
+    id: "hard-hybrid-cafe-bookstore",
+    query: "кафе совмещённое с книжным магазином проводим лекции по выходным и поэтические вечера",
+    expectedNiche: "unknown",
+    expectedKeywordsAny: ["кафе", "книж"],
+  },
+  {
+    id: "hard-extra-short",
+    query: "сайт для бизнеса",
+    expectedNiche: "unknown",
+  },
+  {
+    id: "hard-typos-and-slang",
+    query: "ну тип нужон сайтик для маей пакарни нюансики обсудим патом главное чтоб красиво",
+    expectedNiche: "bakery",
+    expectedKeywordsAny: ["пекарн", "хлеб"],
+  },
+  {
+    id: "hard-very-detailed",
+    query: "Делаю запуск студии лазерной эпиляции (диод 808nm + Александрит 755nm) в Москве на Покровке. Целевая аудитория — женщины 25-45 со средним+ доходом, ценящие комфорт и медицинский подход. Обязательно: онлайн-запись через YClients, интеграция с WhatsApp Business для напоминаний, отзывы с Яндекс.Карт автоматически, прайс с акциями (-40% на курс из 6), фото зон работы (только до/после, никакого стока), сертификаты врачей, адрес с метро и парковкой. Стиль — нежно-розовая палитра, женственно но не приторно, шрифты Manrope+PlayfairDisplay.",
+    expectedNiche: "aesthetics",
+    mustHaveSections: ["hero", "services", "pricing"],
+    expectedKeywordsAny: ["лазерн", "эпиляц", "женщин"],
+  },
+  {
+    id: "hard-regulated-medical",
+    query: "клиника репродуктивной медицины ЭКО ICSI донорство ооцитов с лицензией Росздрава",
+    expectedNiche: "dental",
+    expectedKeywordsAny: ["ЭКО", "ICSI", "репродукт"],
+  },
+  {
+    id: "hard-niche-belarus",
+    query: "сайт для байнэт-стартапа агрегатор такси у Менску працую тольки на белорусам",
+    expectedNiche: "saas",
+    expectedKeywordsAny: ["такси", "Менск"],
+  },
+  {
+    id: "hard-international-arabic-context",
+    query: "ресторан ливанской кухни в Дубае шиша и кальянный зал работаем до 4 утра",
+    expectedNiche: "restaurant",
+    mustHaveSections: ["hero", "menu"],
+    expectedKeywordsAny: ["Ливан", "Дубае", "кальян", "шиша"],
+  },
+  {
+    id: "hard-hybrid-coworking-coffee",
+    query: "коворкинг + кофейня под одной крышей днём работаем вечером ивенты",
+    expectedNiche: "coworking",
+    expectedKeywordsAny: ["коворк", "кофе"],
+  },
+  {
+    id: "hard-very-niche-b2b",
+    query: "B2B-сервис аудита промышленной кибербезопасности АСУ ТП по стандартам IEC 62443",
+    expectedNiche: "saas",
+    expectedKeywordsAny: ["кибербезопасн", "АСУ", "IEC", "B2B"],
+  },
+  {
+    id: "hard-tone-mismatch",
+    query: "ритуальные услуги полное сопровождение похорон 24/7 без выходных",
+    expectedNiche: "unknown",
+    expectedKeywordsAny: ["ритуальн", "похорон"],
+  },
+  {
+    id: "hard-non-business-hobby",
+    query: "личный блог про походы на Камчатку и снаряжение для трекинга",
+    expectedNiche: "unknown",
+    expectedKeywordsAny: ["поход", "Камчат", "трекинг"],
+  },
+  {
+    id: "hard-multilang-mix",
+    query: "I make handmade leather wallets из натуральной кожи продаю на Etsy и хочу свой сайт",
+    expectedNiche: "handmade",
+    expectedKeywordsAny: ["leather", "wallet", "кож", "Etsy"],
+  },
+  {
+    id: "hard-complex-multilevel",
+    query: "холдинг управляющая компания 3 ресторана 2 кофейни и кейтеринг отдельные лендинги под каждое + общий корпоративный",
+    expectedNiche: "restaurant",
+    expectedKeywordsAny: ["холдинг", "ресторан", "кейтер"],
+  },
+  {
+    id: "hard-tech-jargon-heavy",
+    query: "kubernetes operator для автомасштабирования postgres pgpool replication failover",
+    expectedNiche: "saas",
+    expectedKeywordsAny: ["kubernetes", "postgres", "replication"],
+  },
+  {
+    id: "hard-question-format",
+    query: "А можно сайт для онлайн-курса по таро? Сама провожу обучение в zoom для женщин",
+    expectedNiche: "online-school",
+    expectedKeywordsAny: ["таро", "курс", "женщин"],
+  },
+  {
+    id: "hard-wishlist-maximalist",
+    query: "нужен мне сайт чтобы там был блог и магазин и форум и доставка и личный кабинет и онлайн-чат и мобильное приложение и SEO и контекстная реклама и рассылки",
+    expectedNiche: "unknown",
+  },
+  {
+    id: "hard-portfolio-creative",
+    query: "иллюстратор детской книги хочу портфолио без блога только работы и контакты",
+    expectedNiche: "photographer",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["иллюстратор", "детск", "книг"],
+  },
+  {
+    id: "hard-niche-rebrand",
+    query: "ребрендинг существующей кофейни поменяли название хотим обновить визуальный стиль и сайт",
+    expectedNiche: "coffee-shop",
+    expectedKeywordsAny: ["ребренд", "кофейн"],
+  },
+  {
+    id: "hard-niche-event-pop-up",
+    query: "поп-ап маркет ремесленников один день в месяц бронь стендов через сайт",
+    expectedNiche: "event-host",
+    expectedKeywordsAny: ["поп-ап", "маркет", "ремесленник"],
+  },
+  {
+    id: "hard-only-emoji-and-noise",
+    query: "🎨 ART 🎨 сайт нужен для выставки своих картин маслом ✨",
+    expectedNiche: "photographer",
+    mustHaveSections: ["hero", "gallery"],
+    expectedKeywordsAny: ["картин", "выставк", "маслом"],
   },
 ];

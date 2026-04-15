@@ -1,24 +1,46 @@
+# Local build / deploy artifacts
 node_modules/
+.react-router/
+build/
+dist/
+.cache/
+.vite/
+
+# Environment
 .env
 .env.local
 .env.*.local
 
-build/
-dist/
-.react-router/
-.cache/
-.vite/
-
+# Logs
 *.log
+logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Editors / OS
 .DS_Store
-.vscode/*
-!.vscode/extensions.json
+Thumbs.db
 .idea/
+.vscode/
+*.swp
 
+# Test / coverage
 coverage/
-.nyc_output/
+.vitest-cache/
 
-*.tsbuildinfo
+# Tauri / Electron builds
+*.dmg
+*.AppImage
+*.msi
+*.exe.blockmap
+
+# Appwrite migration state
+.appwrite-migrated
+
+# Eval pipeline outputs — persistent, не для git
+eval-reports/
+
+# RAG store on disk
+/tmp/nit-rag.jsonl
+nit-rag.jsonl

@@ -32,7 +32,7 @@ import {
 } from "node-appwrite";
 import { createHash } from "node:crypto";
 
-// ─── Config ──────────────────────────────────────────────────────
+// ─── Config ─────────────────────────────────────────────
 
 export const APPWRITE_CONFIG = {
   endpoint: process.env.APPWRITE_ENDPOINT ?? "https://appwrite.vibecoding.by/v1",
@@ -50,7 +50,7 @@ export function isAppwriteConfigured(): boolean {
   return !!process.env.APPWRITE_API_KEY;
 }
 
-// ─── Clients ─────────────────────────────────────────────────────
+// ─── Clients ────────────────────────────────────────────
 
 /**
  * Admin client — uses API key with full permissions.
@@ -94,7 +94,7 @@ export function getAdminUsers(): Users {
   return new Users(getAdminClient());
 }
 
-// ─── Types for NIT Builder documents ─────────────────────────────
+// ─── Types for NIT Builder documents ────────────────────────
 
 export type NitUser = Models.Document & {
   /** Appwrite user $id — we use the same ID */
@@ -137,7 +137,7 @@ export type NitGuestLimit = Models.Document & {
   resetAt: string;
 };
 
-// ─── Session operations ─────────────────────────────────────────
+// ─── Session operations ───────────────────────────────────
 
 /**
  * Create an Appwrite session from email+password.
@@ -247,7 +247,7 @@ export async function getNitUser(userId: string): Promise<NitUser | null> {
   }
 }
 
-// ─── User operations ─────────────────────────────────────────────
+// ─── User operations ──────────────────────────────────────
 
 /**
  * Register a new user with email+password. Creates both the Appwrite
@@ -376,7 +376,7 @@ export async function regenerateTunnelToken(userId: string): Promise<string> {
   return newToken;
 }
 
-// ─── Site operations ─────────────────────────────────────────────
+// ─── Site operations ──────────────────────────────────────
 
 export async function saveSite(params: {
   userId: string;
@@ -430,7 +430,7 @@ export async function deleteSite(userId: string, siteId: string): Promise<boolea
   }
 }
 
-// ─── Metric logging ──────────────────────────────────────────────
+// ─── Metric logging ───────────────────────────────────────
 
 export async function logGeneration(
   params: Omit<NitGeneration, keyof Models.Document>,
@@ -448,7 +448,7 @@ export async function logGeneration(
   }
 }
 
-// ─── Guest IP quota (persistent) ─────────────────────────────────
+// ─── Guest IP quota (persistent) ─────────────────────────────
 
 /**
  * Хешируем IP перед использованием как docId — чтобы не светить сырые IP
@@ -542,4 +542,53 @@ export async function consumeGuestLimit(
     remaining: dailyMax - existing.count - 1,
     resetAt: new Date(existing.resetAt).getTime(),
   };
+}
+
+/**
+ * Удалить все nit_guest_limits документы с resetAt < now. Без этого коллекция растёт
+ * бесконечно (по документу на каждый уникальный IP-хэш который когда-либо посещал сайт).
+ *
+ * Вызывается вручную через admin endpoint или по cron (достаточно раз в сутки).
+ * Возвращает сводку для логирования.
+ *
+ * Пакетный limit=100 (лимит Appwrite list API), обрабатывает до maxBatches пакетов за вызов.
+ */
+export async function cleanupExpiredGuestLimits(
+  maxBatches: number = 10,
+): Promise<{ scanned: number; deleted: number; batches: number }> {
+  const db = getAdminDatabases();
+  const now = new Date().toISOString();
+
+  let totalScanned = 0;
+  let totalDeleted = 0;
+  let batches = 0;
+
+  for (let i = 0; i < maxBatches; i++) {
+    const result = await db.listDocuments<NitGuestLimit>(
+      APPWRITE_CONFIG.databaseId,
+      APPWRITE_CONFIG.collections.guestLimits,
+      [Query.lessThan("resetAt", now), Query.limit(100)],
+    );
+    totalScanned += result.documents.length;
+    if (result.documents.length === 0) break;
+
+    // Удаляем параллельно но ловим ошибки индивидуальных doc'ов (раса между
+    // параллельными cleanup-ранами допустима).
+    const settled = await Promise.allSettled(
+      result.documents.map((doc) =>
+        db.deleteDocument(
+          APPWRITE_CONFIG.databaseId,
+          APPWRITE_CONFIG.collections.guestLimits,
+          doc.$id,
+        ),
+      ),
+    );
+    totalDeleted += settled.filter((s) => s.status === "fulfilled").length;
+    batches++;
+
+    // Если пакет вернул меньше лимита — больше ничего нет, выходим.
+    if (result.documents.length < 100) break;
+  }
+
+  return { scanned: totalScanned, deleted: totalDeleted, batches };
 }

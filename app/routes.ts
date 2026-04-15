@@ -22,6 +22,7 @@ export default [
   route("api/admin/eval/run", "routes/api.admin.eval.run.ts"),
   route("api/admin/feedback", "routes/api.admin.feedback.ts"),
   route("api/admin/metrics", "routes/api.admin.metrics.ts"),
+  route("api/admin/guest-limits/cleanup", "routes/api.admin.guest-limits.cleanup.ts"),
   route("api/admin/rag/ingest", "routes/api.admin.rag.ingest.ts"),
   route("api/admin/rag/ingest-feedback", "routes/api.admin.rag.ingest-feedback.ts"),
   route("api/admin/rag/search", "routes/api.admin.rag.search.ts"),

@@ -66,9 +66,9 @@ describe("buildCopyHint", () => {
       hero_headline: "Заголовок",
       hero_subheadline: "Подзаголовок",
       key_benefits: [
-        { title: "A", description: "First benefit here" },
-        { title: "B", description: "Second benefit here" },
-        { title: "C", description: "Third benefit here" },
+        { title: "AA", description: "First benefit here" },
+        { title: "BB", description: "Second benefit here" },
+        { title: "CC", description: "Third benefit here" },
       ],
       social_proof_line: "Социальное доказательство",
       cta_microcopy: "Без предоплаты",

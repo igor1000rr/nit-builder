@@ -3,7 +3,8 @@
  *
  * Zero-cost если sentinel текущей версии уже есть: hasDocument() → return.
  * При первом запуске или bump SEED_VERSION:
- *   - добавляет plan_example seeds из planExamples.ts
+ *   - добавляет plan_example seeds из planExamples.ts (24 базовых)
+ *   - добавляет extended seeds из planExamplesExtended.ts (8 с pricing/faq/hours/contact)
  *   - добавляет hero_headline / benefits / social_proof / cta_microcopy
  *     из copywritingBank.ts
  *   - пишет sentinel
@@ -15,6 +16,10 @@
  * `[niche | tone | mood] query` — это даёт +30-50% recall на medium queries
  * (перефразировки, билингвал, гибридные ниши).
  *
+ * Tier 4 (v4): отдельный массив PLAN_EXAMPLE_SEEDS_EXTENDED с примерами pricing_tiers/
+ * faq/hours_text/contact_*. Позволяет Planner через few-shot увидеть как выдавать
+ * расширенные поля — 7B модель без живых примеров в корпусе редко берёт optional поля.
+ *
  * Вызывается ленивыми точками: buildFewShotPlansAdaptive, admin endpoints.
  * Если RAG_ENABLED=0 или embedding недоступен — ничего не делает.
  */
@@ -23,6 +28,7 @@ import { logger } from "~/lib/utils/logger";
 import { addDocument, hasDocument } from "~/lib/services/ragStore";
 import { isRagDisabled } from "~/lib/services/ragEmbeddings";
 import { PLAN_EXAMPLE_SEEDS } from "~/lib/rag/seeds/planExamples";
+import { PLAN_EXAMPLE_SEEDS_EXTENDED } from "~/lib/rag/seeds/planExamplesExtended";
 import {
   HERO_HEADLINE_SEEDS,
   BENEFITS_SEEDS,
@@ -32,7 +38,7 @@ import {
 import { buildContextualText } from "~/lib/services/contextualEmbed";
 
 const SCOPE = "ragBootstrap";
-const SEED_VERSION = "v3";
+const SEED_VERSION = "v4";
 const SENTINEL_ID = `__seed_sentinel:${SEED_VERSION}`;
 
 let bootstrapPromise: Promise<void> | null = null;
@@ -57,10 +63,11 @@ async function doBootstrap(): Promise<void> {
   let added = 0;
   let failed = 0;
 
-  for (const seed of PLAN_EXAMPLE_SEEDS) {
-    // Contextual prefix для plan_example seeds: ниша + tone + mood
-    // ID меняется (suffix :v3) чтобы старые v1/v2 embeddings не блокировали
-    // переиндексацию с новым префиксом.
+  // Base seeds (24 ниши) + extended (8 с pricing/faq/hours/contact)
+  const allPlanSeeds = [...PLAN_EXAMPLE_SEEDS, ...PLAN_EXAMPLE_SEEDS_EXTENDED];
+
+  for (const seed of allPlanSeeds) {
+    // Contextual prefix: ниша + tone + mood
     const contextualText = buildContextualText(seed.query, {
       niche: seed.niche,
       tone: seed.plan.tone,

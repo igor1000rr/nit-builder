@@ -12,6 +12,9 @@
  *   - outcome="success"
  *   - нет errorReason (truncated/continue_truncated/etc отбрасываются)
  *   - planCached=false (кэшированные — дубли уже имеющихся)
+ *   - injectMethod НЕ равен 'skeleton' (Tier 3): skeleton-результаты используют plan как есть без
+ *     применения Coder LLM — инжест таких в RAG не даёт новой информации (plan уже был
+ *     в корпусе когда Planner его сгенерировал)
  *   - plan присутствует и проходит PlanSchema
  *   - userMessage >= MIN_QUERY_LEN (8 chars) и <= MAX_QUERY_LEN — отфильтровывает мусор
  *   - durationMs > 0 и < MAX_DURATION_MS (фильтруем выбросы)
@@ -55,7 +58,6 @@ const MAX_DURATION_MS = 120_000;
 const DEFAULT_BATCH_LIMIT = 500;
 const CURSOR_DEFAULT_PATH = "/tmp/nit-feedback-ingest-cursor.json";
 
-/** Те же banned-фразы что в eval/metrics. Дублируем чтобы не тянуть eval/ в prod-zavisimosti. */
 const BANNED_PHRASES = [
   "качество", "профессионализм", "индивидуальный подход",
   "добро пожаловать", "наша миссия", "квалифицированные специалисты",
@@ -72,6 +74,7 @@ export type IngestRejectReason =
   | "not_success"
   | "has_error_reason"
   | "plan_cached"
+  | "skeleton_inject"
   | "no_plan"
   | "plan_invalid_schema"
   | "query_too_short"
@@ -87,7 +90,6 @@ export type IngestDecision =
   | { ok: true; id: string }
   | { ok: false; reason: IngestRejectReason };
 
-/** Схема cursor файла. */
 export type IngestCursor = {
   lastTs: string | null;
   totalProcessed: number;
@@ -95,10 +97,6 @@ export type IngestCursor = {
   lastRunAt: string;
 };
 
-/**
- * Pure-функция: проверяет подходит ли запись для ingest. Используется в тестах
- * и в production runner.
- */
 export function qualifies(
   record: FeedbackRecord,
 ): IngestDecision {
@@ -106,6 +104,9 @@ export function qualifies(
   if (record.outcome !== "success") return { ok: false, reason: "not_success" };
   if (record.errorReason) return { ok: false, reason: "has_error_reason" };
   if (record.planCached) return { ok: false, reason: "plan_cached" };
+  // Skeleton-injection использует plan напрямую без Coder — ingest этих записей не даёт
+  // новой информации. Инжестим только Coder-проверенные генерации.
+  if (record.injectMethod === "skeleton") return { ok: false, reason: "skeleton_inject" };
   if (!record.plan) return { ok: false, reason: "no_plan" };
 
   const planParsed = PlanSchema.safeParse(record.plan);
@@ -207,6 +208,7 @@ function emptyReasons(): Record<IngestRejectReason, number> {
     not_success: 0,
     has_error_reason: 0,
     plan_cached: 0,
+    skeleton_inject: 0,
     no_plan: 0,
     plan_invalid_schema: 0,
     query_too_short: 0,
@@ -220,14 +222,6 @@ function emptyReasons(): Record<IngestRejectReason, number> {
   };
 }
 
-/**
- * Основная функция. Читает хвост feedback.jsonl, фильтрует, ingest-ит в RAG.
- *
- * Параметры:
- *   - limit: сколько последних записей сканировать (default 500)
- *   - dryRun: только счётчики, без реального добавления в RAG (и без cursor update)
- *   - signal: AbortSignal для отмены длительных ingest
- */
 export async function runFeedbackIngest(opts: {
   limit?: number;
   dryRun?: boolean;
@@ -257,7 +251,6 @@ export async function runFeedbackIngest(opts: {
       continue;
     }
 
-    // Дедуп по id до вызова addDocument (быстрый in-memory check)
     if (await hasDocument(decision.id)) {
       reasons.already_ingested++;
       continue;

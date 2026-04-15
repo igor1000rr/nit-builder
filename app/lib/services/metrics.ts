@@ -15,6 +15,7 @@ const DEFAULT_BUCKETS = [100, 500, 1000, 2000, 5000, 10_000, 20_000, 30_000, 60_
 const RULE_COUNT_BUCKETS = [1, 2, 3, 5, 8, 13, 20];
 const TOKEN_BUCKETS = [100, 250, 500, 1000, 2000, 5000, 10_000, 20_000];
 const PRUNE_BUCKETS = [0, 1, 2, 3, 5, 8, 13];
+const FILL_RATIO_BUCKETS = [0.25, 0.5, 0.6, 0.75, 0.9, 1.0];
 
 function counterKey(name: string, labels?: Record<string, string>): string {
   if (!labels) return name;
@@ -107,6 +108,19 @@ export const metrics = {
   },
   planCacheMiss: () => {
     incrementCounter("nit_plan_cache_misses_total");
+  },
+  /** Skeleton-injection была попытана (вызывается на каждой create-генерации). */
+  skeletonInjectAttempted: () => {
+    incrementCounter("nit_skeleton_inject_attempted_total");
+  },
+  /** Skeleton-injection успешна, Coder НЕ вызывался. */
+  skeletonInjectSucceeded: (templateId: string, fillRatio: number) => {
+    incrementCounter("nit_skeleton_inject_succeeded_total", { template: templateId });
+    observeHistogram("nit_skeleton_inject_fill_ratio", fillRatio, FILL_RATIO_BUCKETS);
+  },
+  /** Skeleton-injection пропущена — fallback на Coder. reason из InjectionResult. */
+  skeletonInjectSkipped: (reason: string) => {
+    incrementCounter("nit_skeleton_inject_skipped_total", { reason });
   },
   /**
    * Токены с реального usage-объекта из ai SDK. kind="prompt"|"completion".

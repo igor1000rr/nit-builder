@@ -12,7 +12,7 @@ import {
   getTemplateById,
   getFallbackTemplate,
 } from "~/lib/config/htmlTemplatesCatalog";
-import { loadTemplateHtmlForLlm } from "~/lib/config/htmlTemplates.server";
+import { loadTemplateHtml, loadTemplateHtmlForLlm } from "~/lib/config/htmlTemplates.server";
 import {
   getPreferredProvider,
   getModel,
@@ -56,6 +56,7 @@ import {
   generatePlanConstrained,
   isConstrainedDecodingEnabled,
 } from "~/lib/services/constrainedPlanGen";
+import { injectPlanIntoTemplate } from "~/lib/services/skeletonInjector";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -90,6 +91,13 @@ export type PipelineEvent =
     }
   | { type: "rag_fewshot"; count: number; topScore: number; approxTokens: number }
   | { type: "plan_reasoning"; chars: number }
+  | {
+      type: "skeleton_inject_used";
+      templateId: string;
+      slotsFilled: number;
+      slotsTotal: number;
+      fillRatio: number;
+    }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
@@ -172,7 +180,6 @@ async function obtainPlan(
     metrics.planCacheMiss();
   }
 
-  // Template retriever shortlist
   let candidateIds: string[] | undefined;
   try {
     const retrieved = await retrieveTemplates(sanitizedMessage, 5, signal);
@@ -184,7 +191,6 @@ async function obtainPlan(
     if ((retrieverErr as Error).name === "AbortError") throw retrieverErr;
   }
 
-  // RAG few-shot (hybrid pipeline)
   let fewShotBlock = "";
   let fewShotCount = 0;
   let fewShotTopScore = 0;
@@ -199,7 +205,6 @@ async function obtainPlan(
     if ((ragErr as Error).name === "AbortError") throw ragErr;
   }
 
-  // Two-step reasoning (первый шаг: свободный анализ)
   let reasoning = "";
   if (isReasoningEnabled()) {
     try {
@@ -212,7 +217,6 @@ async function obtainPlan(
   const augmentedPrompt = buildAugmentedPlannerPrompt(sanitizedMessage, reasoning);
   const systemPrompt = buildPlannerSystemPrompt(candidateIds, fewShotBlock);
 
-  // Step с5: Constrained decoding (LM Studio json_schema — XGrammar gives 100% valid JSON)
   if (isConstrainedDecodingEnabled()) {
     const constrained = await generatePlanConstrained({
       modelName,
@@ -234,16 +238,12 @@ async function obtainPlan(
         reasoningChars,
       };
     }
-    // Если transient — пробуем дальше generateObject. Если unsupported — тоже
-    // пробуем (вдруг SDK справится), но в generatePlanConstrained уже
-    // выставлен runtimeDisabled=true — дальше по сессии сразу generateObject.
     logger.warn(
       SCOPE,
       `Constrained decoding failed (${constrained.reason}), fallback to generateObject`,
     );
   }
 
-  // Step 6: structured generateObject (AI SDK prompt-mode)
   try {
     const { object } = await generateObject({
       model,
@@ -271,7 +271,6 @@ async function obtainPlan(
     );
   }
 
-  // Step 7: free-form generateText + manual JSON parse
   try {
     const { text: planRaw } = await generateText({
       model,
@@ -307,7 +306,6 @@ async function obtainPlan(
     logger.warn(SCOPE, `Fallback generateText failed: ${(genErr as Error).message}`);
   }
 
-  // Step 8: synthetic last resort
   const synthetic: Plan = {
     business_type: sanitizedMessage.slice(0, 100) || "универсальный сайт",
     target_audience: "",
@@ -330,10 +328,6 @@ async function obtainPlan(
   };
 }
 
-/**
- * Public entry для eval-pipeline. Использует obtainPlan с skipCache=true,
- * не пишет feedback и не трогает sessionMemory.
- */
 export async function runPlannerForEval(params: {
   model: ReturnType<typeof getModel>;
   modelName: string;
@@ -350,7 +344,7 @@ export async function runPlannerForEval(params: {
       params.model,
       params.sanitizedMessage,
       params.signal,
-      true, // всегда skipCache в eval
+      true,
       params.modelName,
     );
     return {
@@ -475,13 +469,64 @@ export async function* executeHtmlSimple(
   }
 
   const template = getTemplateById(currentPlan.suggested_template_id) ?? getFallbackTemplate();
-  const rawTemplateHtml = loadTemplateHtmlForLlm(template.id);
   memory.templateId = template.id;
   currentTemplateId = template.id;
 
   yield { type: "template_selected", templateId: template.id, templateName: template.name };
   metrics.templateSelected(template.id);
 
+  // === Tier 3: Skeleton direct injection — пытаемся обойти Coder вовсе ===
+  // Используем чистый шаблон (без LLM-маркеров) и без prune — injection работает со всем
+  // исходным HTML и оставляет все секции (вырезать нежелательные можно потом в polish).
+  metrics.skeletonInjectAttempted();
+  const cleanTemplateHtml = loadTemplateHtml(template.id);
+  const injection = injectPlanIntoTemplate(cleanTemplateHtml, currentPlan);
+
+  if (injection.ok) {
+    metrics.skeletonInjectSucceeded(template.id, injection.fillRatio);
+    const finalHtml = stripCodeFences(injection.html);
+    memory.currentHtml = finalHtml;
+    memory.updatedAt = Date.now();
+    updateSessionHtml(memory.sessionId, finalHtml);
+    const totalMs = Date.now() - startMs;
+    metrics.generationCompleted("create", provider.id, totalMs);
+
+    logger.info(
+      SCOPE,
+      `Skeleton-injection сработала: ${template.id}, slots=${injection.slotsFilled}/${injection.slotsTotal}, fillRatio=${injection.fillRatio.toFixed(2)}, totalMs=${totalMs} (Coder пропущен)`,
+    );
+
+    recordGeneration({
+      sessionId: memory.sessionId,
+      mode: "create",
+      outcome: "success",
+      provider: provider.id,
+      model: provider.defaultModel,
+      durationMs: totalMs,
+      userMessage: sanitized,
+      plan: currentPlan,
+      templateId: currentTemplateId,
+      planCached: planCachedFlag,
+      injectMethod: "skeleton",
+      skeletonFillRatio: injection.fillRatio,
+    });
+
+    yield {
+      type: "skeleton_inject_used",
+      templateId: template.id,
+      slotsFilled: injection.slotsFilled,
+      slotsTotal: injection.slotsTotal,
+      fillRatio: injection.fillRatio,
+    };
+    yield { type: "step_complete", html: finalHtml };
+    return;
+  }
+
+  metrics.skeletonInjectSkipped(injection.reason);
+  logger.info(SCOPE, `Skeleton-injection пропущена (${injection.reason}), вызываем Coder`);
+
+  // === Fallback: традиционный Coder pipeline ===
+  const rawTemplateHtml = loadTemplateHtmlForLlm(template.id);
   const pruneResult = pruneTemplateForPlan(rawTemplateHtml, currentPlan.sections);
   const templateHtml = pruneResult.html;
   if (pruneResult.removed.length > 0) {
@@ -523,6 +568,7 @@ export async function* executeHtmlSimple(
         plan: currentPlan,
         templateId: currentTemplateId,
         planCached: planCachedFlag,
+        injectMethod: "coder",
         errorReason: "context_overflow",
       });
       yield { type: "error", message: budget.warning ?? "Context overflow" };
@@ -595,6 +641,7 @@ export async function* executeHtmlSimple(
         plan: currentPlan,
         templateId: currentTemplateId,
         planCached: planCachedFlag,
+        injectMethod: "coder",
         errorReason: "truncated",
       });
       yield {
@@ -623,6 +670,7 @@ export async function* executeHtmlSimple(
       plan: currentPlan,
       templateId: currentTemplateId,
       planCached: planCachedFlag,
+      injectMethod: "coder",
     });
     yield { type: "step_complete", html: fullHtml };
   } catch (err) {
@@ -639,6 +687,7 @@ export async function* executeHtmlSimple(
       plan: currentPlan,
       templateId: currentTemplateId,
       planCached: planCachedFlag,
+      injectMethod: "coder",
       errorReason: `coder: ${(err as Error).message}`,
     });
     yield { type: "error", message: `Ошибка кодера: ${(err as Error).message}` };

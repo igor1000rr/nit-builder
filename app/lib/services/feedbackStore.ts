@@ -10,7 +10,7 @@
  * Требования: NIT_FEEDBACK_ENABLED=1 + (опц.) NIT_FEEDBACK_LOG_PATH.
  * По умолчанию отключён чтобы не мусорить в локальной разработке.
  *
- * Non-blocking: все записи fire-and-forget с try/catch, ошибки лишь логируются.
+ * Non-blocking: все записи fire-and-forget с try/catch, ошибки лишь логгируются.
  * Сбой записи фидбэка НЕ должен ломать основной флоу пользователя.
  */
 
@@ -25,6 +25,7 @@ const MAX_MESSAGE_LEN = 500;
 
 export type FeedbackRecordMode = "create" | "polish";
 export type FeedbackRecordOutcome = "success" | "error";
+export type FeedbackInjectMethod = "skeleton" | "coder";
 
 export type FeedbackRecord = {
   /** ISO-8601 timestamp. */
@@ -48,6 +49,15 @@ export type FeedbackRecord = {
   errorReason?: string;
   /** План был возвращён из кеша. */
   planCached?: boolean;
+  /**
+   * Как HTML был сгенерирован (Tier 3): 'skeleton' — server-side direct injection без Coder LLM,
+   * 'coder' — традиционный streaming через LLM. Нужно для анализа распределения и фильтрования
+   * в feedback ingest (skeleton-records НЕ инжестятся в plan_example RAG — их plan идёт не от лучшего
+   * Coder, а прямо от Planner; добавлять их в корпус безопасно но не даёт новой информации).
+   */
+  injectMethod?: FeedbackInjectMethod;
+  /** Только для injectMethod='skeleton': доля заполненных слотов 0..1. */
+  skeletonFillRatio?: number;
 };
 
 function isEnabled(): boolean {

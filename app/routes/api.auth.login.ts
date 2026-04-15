@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ActionFunctionArgs } from "react-router";
-import { createEmailSession } from "~/lib/server/appwrite.server";
+import { createEmailSession, deleteSession } from "~/lib/server/appwrite.server";
 import {
   buildSessionCookie,
   createSessionToken,
@@ -64,11 +64,15 @@ export async function action({ request }: ActionFunctionArgs) {
   const { email, password } = parsed.data;
 
   try {
-    // createEmailSession verifies password by attempting to create an
-    // Appwrite session. We don't use the returned `secret` (Appwrite's
-    // server SDK doesn't actually populate it). We only need confirmation
-    // that the credentials are valid + the userId.
-    const { userId } = await createEmailSession(email, password);
+    // createEmailSession создаёт Appwrite session чтобы проверить пароль.
+    // Мы её не используем (своя cookie + JWT), поэтому удаляем сразу после
+    // verify — иначе у юзера копятся мёртвые сессии в Appwrite (по одной
+    // на каждый login). Cleanup fire-and-forget: ответ юзеру не блокируем.
+    const { userId, secret } = await createEmailSession(email, password);
+    void deleteSession(secret).catch((err: Error) => {
+      console.warn("[api.auth.login] Failed to clean up Appwrite session:", err.message);
+    });
+
     const sessionToken = createSessionToken(userId);
 
     return Response.json(

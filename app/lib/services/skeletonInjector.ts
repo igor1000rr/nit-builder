@@ -1,26 +1,27 @@
 /**
- * Skeleton Direct Injection (Tier 3 шаг 1).
+ * Skeleton Direct Injection (Tier 3).
  *
  * Идея. Если Planner уже выдал весь копирайт (hero/benefits/social_proof/cta) —
- * Coder НЕ НУЖЕН. Мы можем прямо подставить тексты в шаблон через server-side
+ * Coder НЕ НУЖЕН. Мы прямо подставляем тексты в шаблон через server-side
  * DOM-replacement по эвристическим селекторам.
  *
  * Эффект:
  *   - Coder вызывается в ~20-30% случаев вместо 100%
- *   - latency падает с ~15s до ~1s на successful injection
+ *   - latency падает с ~15s до ~50ms на successful injection
  *   - токены: 0 Coder tokens (раньше 6000+ prompt + 4000+ completion)
- *   - гарантия: HTML-структура шаблона не ломается вообще
+ *   - гарантия: HTML-структура шаблона не ломается
  *
- * Стратегия. Работаем по regex вместо DOM-parser-а (избегаем jsdom):
- *   1. <h1>...</h1> в #hero → hero_headline
- *   2. Первый <p ...>...</p> после h1 в #hero → hero_subheadline
- *   3. <h2>...</h2> + <p>...</p> в features/benefits ⑁екции → key_benefits[i]
- *   4. social_proof_line → вставляем блок после hero (если нет подходящего слота)
- *   5. cta_microcopy → <small class="cta-microcopy">...</small> под первой кнопкой в hero
+ * Слоты (в порядке приоритета):
+ *   1. <title> — из plan.business_type (SEO, всегда работает)
+ *   2. <h1> в #hero → hero_headline
+ *   3. Первый <p> после h1 в #hero → hero_subheadline
+ *   4. <h3>+<p> в features/benefits/why-us/services/about → key_benefits[i]
+ *   5. social_proof_line → #testimonials/#social-proof/#reviews или inject после hero
+ *   6. cta_microcopy → <small class="cta-microcopy"> под первой <a> кнопкой в hero
  *
  * Порог. Если < SLOT_FILL_THRESHOLD слотов реально заменено → фолбэк на Coder.
  *
- * Backward-compat. Если plan без hero_headline (legacy planner) — сразу возвращаем null,
+ * Backward-compat. Если plan без hero_headline (legacy planner) — сразу ok:false,
  * оркестратор пойдёт через старый Coder pipeline.
  *
  * ENV NIT_SKELETON_INJECT_ENABLED=0 — kill-switch.
@@ -30,27 +31,29 @@ import { logger } from "~/lib/utils/logger";
 import type { Plan } from "~/lib/utils/planSchema";
 
 const SCOPE = "skeletonInjector";
-const SLOT_FILL_THRESHOLD = 0.6; // хотя бы 60% слотов должны быть заполнены
+const SLOT_FILL_THRESHOLD = 0.6;
 
 export function isSkeletonInjectEnabled(): boolean {
   return process.env.NIT_SKELETON_INJECT_ENABLED !== "0";
 }
 
-export type InjectionResult = {
-  ok: true;
-  html: string;
-  slotsFilled: number;
-  slotsTotal: number;
-  fillRatio: number;
-} | {
-  ok: false;
-  reason: string;
-  slotsFilled: number;
-  slotsTotal: number;
-  fillRatio: number;
-};
+export type InjectionResult =
+  | {
+      ok: true;
+      html: string;
+      slotsFilled: number;
+      slotsTotal: number;
+      fillRatio: number;
+    }
+  | {
+      ok: false;
+      reason: string;
+      slotsFilled: number;
+      slotsTotal: number;
+      fillRatio: number;
+    };
 
-/** Работает только в пределах одной секции по id. Получает [start, end) индексы. */
+/** Находит [start, end) индексы секции по id. */
 function findSectionRange(
   html: string,
   sectionId: string,
@@ -60,7 +63,6 @@ function findSectionRange(
   );
   if (!startMatch || startMatch.index === undefined) return null;
   const start = startMatch.index;
-  // Находим парный </section> с учётом вложенности (наши шаблоны вложенных section не имеют)
   const endMatch = html.slice(start).match(/<\/section\s*>/i);
   if (!endMatch || endMatch.index === undefined) return null;
   return { start, end: start + endMatch.index + endMatch[0].length };
@@ -75,9 +77,7 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Заменить внутренний текст первого тэга (сохраняет все атрибуты и вложенные тэги
- * типа <span> — просто заменяет весь innerHTML).
- * Возвращает [updatedHtml, replaced].
+ * Заменить внутренний текст первого тэга (сохраняет все атрибуты).
  */
 function replaceFirstTagInRange(
   html: string,
@@ -105,18 +105,12 @@ function replaceFirstTagInRange(
   return { html: newHtml, replaced: true };
 }
 
-/**
- * Найти все <h2> и их братьев-<p> в секции features/benefits-style. Заменить по порядку.
- * Поддерживает h3 тоже (в части шаблонов карточки features используют h3).
- */
 function replaceBenefitCards(
   html: string,
   sectionRange: { start: number; end: number },
   benefits: Array<{ title: string; description: string }>,
 ): { html: string; replaced: number } {
   const sectionHtml = html.slice(sectionRange.start, sectionRange.end);
-  // Ищем пары (h3|h2 + ближайший p в том же контейнере).
-  // Простая эвристика: все h3 в секции + первый p после каждого h3.
   const headingRe = /<(h[23])\b[^>]*>([\s\S]*?)<\/\1>/gi;
   type Heading = { tag: string; openIdx: number; closeEnd: number };
   const headings: Heading[] = [];
@@ -130,12 +124,10 @@ function replaceBenefitCards(
   }
   if (headings.length === 0) return { html, replaced: 0 };
 
-  // Выбираем преимущественно h3 (карточки), иначе h2
   const cardLevel = headings.some((h) => h.tag === "h3") ? "h3" : "h2";
   const cards = headings.filter((h) => h.tag === cardLevel);
   if (cards.length === 0) return { html, replaced: 0 };
 
-  // Для каждой карточки находим первый <p> после неё (до следующей карточки или конца)
   type Replacement = { from: number; to: number; text: string };
   const replacements: Replacement[] = [];
   const limit = Math.min(cards.length, benefits.length);
@@ -145,9 +137,10 @@ function replaceBenefitCards(
     const nextCard = cards[i + 1];
     const cardEnd = nextCard ? nextCard.openIdx : sectionHtml.length;
 
-    // Заменяем heading content
     const headingOpenRe = new RegExp(`<${card.tag}\\b[^>]*>`, "i");
-    const headingTextStart = card.openIdx + (sectionHtml.slice(card.openIdx).match(headingOpenRe)?.[0].length ?? 0);
+    const headingTextStart =
+      card.openIdx +
+      (sectionHtml.slice(card.openIdx).match(headingOpenRe)?.[0].length ?? 0);
     const headingTextEnd = card.closeEnd - `</${card.tag}>`.length;
     replacements.push({
       from: headingTextStart,
@@ -155,13 +148,13 @@ function replaceBenefitCards(
       text: escapeHtml(benefit.title),
     });
 
-    // Находим первый <p> после heading до cardEnd
     const after = sectionHtml.slice(card.closeEnd, cardEnd);
     const pMatch = after.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i);
     if (pMatch && pMatch.index !== undefined) {
       const pOpenLen = pMatch[0].indexOf(">") + 1;
       const pTextStart = card.closeEnd + pMatch.index + pOpenLen;
-      const pTextEnd = card.closeEnd + pMatch.index + pMatch[0].length - "</p>".length;
+      const pTextEnd =
+        card.closeEnd + pMatch.index + pMatch[0].length - "</p>".length;
       replacements.push({
         from: pTextStart,
         to: pTextEnd,
@@ -172,34 +165,122 @@ function replaceBenefitCards(
 
   if (replacements.length === 0) return { html, replaced: 0 };
 
-  // Применяем с конца чтобы индексы не смещались
   replacements.sort((a, b) => b.from - a.from);
   let updatedSection = sectionHtml;
   for (const r of replacements) {
-    updatedSection = updatedSection.slice(0, r.from) + r.text + updatedSection.slice(r.to);
+    updatedSection =
+      updatedSection.slice(0, r.from) + r.text + updatedSection.slice(r.to);
   }
 
   const newHtml =
-    html.slice(0, sectionRange.start) + updatedSection + html.slice(sectionRange.end);
+    html.slice(0, sectionRange.start) +
+    updatedSection +
+    html.slice(sectionRange.end);
   return { html: newHtml, replaced: limit };
 }
 
 /**
- * Основная функция. Принимает raw шаблон HTML и plan, возвращает InjectionResult.
+ * Замена <title>...</title> в head на SEO-ориентированный заголовок из plan.
+ * Формат: "{hero_headline} — {business_type}" или fallback на business_type.
  */
+function replaceTitle(html: string, plan: Plan): { html: string; replaced: boolean } {
+  const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
+  if (!titleMatch || titleMatch.index === undefined) {
+    return { html, replaced: false };
+  }
+  const newTitle =
+    plan.hero_headline && plan.hero_headline.length < 60
+      ? `${plan.hero_headline} — ${plan.business_type}`
+      : plan.business_type;
+  const truncated = newTitle.slice(0, 70);
+  const before = html.slice(0, titleMatch.index);
+  const after = html.slice(titleMatch.index + titleMatch[0].length);
+  return {
+    html: `${before}<title>${escapeHtml(truncated)}</title>${after}`,
+    replaced: true,
+  };
+}
+
+/**
+ * Подставляет social_proof_line. Приоритет:
+ *   1. Первый <p> в #testimonials/#social-proof/#reviews → заменить
+ *   2. Иначе ok=false (не критично — слот опциональный, фолбэк не нужен)
+ */
+function replaceSocialProof(
+  html: string,
+  socialProofLine: string,
+): { html: string; replaced: boolean } {
+  const sectionIds = ["testimonials", "social-proof", "reviews", "social_proof"];
+  for (const sid of sectionIds) {
+    const range = findSectionRange(html, sid);
+    if (!range) continue;
+    const r = replaceFirstTagInRange(html, range, "p", socialProofLine);
+    if (r.replaced) return r;
+  }
+  return { html, replaced: false };
+}
+
+/**
+ * Добавляет <small class="cta-microcopy"> после первой <a> кнопки в hero.
+ * Идемпотентно: если уже есть .cta-microcopy в hero — перезаписываем текст.
+ */
+function injectCtaMicrocopy(
+  html: string,
+  microcopy: string,
+): { html: string; replaced: boolean } {
+  const heroRange = findSectionRange(html, "hero");
+  if (!heroRange) return { html, replaced: false };
+  const sectionHtml = html.slice(heroRange.start, heroRange.end);
+
+  // Если уже есть — перезаписываем
+  const existingMatch = sectionHtml.match(
+    /<small\s+class=["'][^"']*cta-microcopy[^"']*["'][^>]*>[\s\S]*?<\/small>/i,
+  );
+  if (existingMatch && existingMatch.index !== undefined) {
+    const replacement = `<small class="cta-microcopy text-xs opacity-70 block mt-2">${escapeHtml(microcopy)}</small>`;
+    const before =
+      html.slice(0, heroRange.start) +
+      sectionHtml.slice(0, existingMatch.index);
+    const after =
+      sectionHtml.slice(existingMatch.index + existingMatch[0].length) +
+      html.slice(heroRange.end);
+    return { html: before + replacement + after, replaced: true };
+  }
+
+  // Ищем первую <a> в hero и вставляем <small> после неё (после закрывающего </a>)
+  const aMatch = sectionHtml.match(/<a\b[^>]*>[\s\S]*?<\/a>/i);
+  if (!aMatch || aMatch.index === undefined) return { html, replaced: false };
+  const insertAt =
+    heroRange.start + aMatch.index + aMatch[0].length;
+  const insertion = `\n<small class="cta-microcopy text-xs opacity-70 block mt-2">${escapeHtml(microcopy)}</small>`;
+  return {
+    html: html.slice(0, insertAt) + insertion + html.slice(insertAt),
+    replaced: true,
+  };
+}
+
 export function injectPlanIntoTemplate(
   templateHtml: string,
   plan: Plan,
 ): InjectionResult {
   if (!isSkeletonInjectEnabled()) {
-    return { ok: false, reason: "disabled", slotsFilled: 0, slotsTotal: 0, fillRatio: 0 };
+    return {
+      ok: false,
+      reason: "disabled",
+      slotsFilled: 0,
+      slotsTotal: 0,
+      fillRatio: 0,
+    };
   }
 
-  // Слоты которые пытаемся заполнить
+  // Слоты которые пытаемся заполнить (считаем только те что имеют данные в plan)
   const slots: Array<{ name: string; required: boolean; available: boolean }> = [
     { name: "hero_headline", required: true, available: !!plan.hero_headline },
     { name: "hero_subheadline", required: false, available: !!plan.hero_subheadline },
     { name: "key_benefits", required: false, available: (plan.key_benefits?.length ?? 0) >= 3 },
+    { name: "social_proof", required: false, available: !!plan.social_proof_line },
+    { name: "cta_microcopy", required: false, available: !!plan.cta_microcopy },
+    { name: "title", required: false, available: !!plan.business_type },
   ];
 
   const requiredMissing = slots.filter((s) => s.required && !s.available);
@@ -217,7 +298,16 @@ export function injectPlanIntoTemplate(
   let filled = 0;
   const slotsTotal = slots.filter((s) => s.available).length;
 
-  // 1. Hero headline — первый h1 в #hero
+  // 1. <title> — SEO
+  if (plan.business_type) {
+    const r = replaceTitle(html, plan);
+    if (r.replaced) {
+      html = r.html;
+      filled++;
+    }
+  }
+
+  // 2. Hero headline — первый h1 в #hero
   const heroRange = findSectionRange(html, "hero");
   if (heroRange && plan.hero_headline) {
     const r = replaceFirstTagInRange(html, heroRange, "h1", plan.hero_headline);
@@ -227,11 +317,10 @@ export function injectPlanIntoTemplate(
     }
   }
 
-  // 2. Hero subheadline — первый p после h1 в #hero (переискать range т.к. html изменился)
+  // 3. Hero subheadline — первый p после h1 в #hero
   if (plan.hero_subheadline) {
     const heroRange2 = findSectionRange(html, "hero");
     if (heroRange2) {
-      // Находим первый p ПОСЛЕ закрывающего </h1> в секции
       const sectionHtml = html.slice(heroRange2.start, heroRange2.end);
       const h1End = sectionHtml.search(/<\/h1\s*>/i);
       if (h1End >= 0) {
@@ -239,18 +328,33 @@ export function injectPlanIntoTemplate(
         const pMatch = after.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i);
         if (pMatch && pMatch.index !== undefined) {
           const pOpenLen = pMatch[0].indexOf(">") + 1;
-          const pTextStart = heroRange2.start + h1End + pMatch.index + pOpenLen;
-          const pTextEnd = heroRange2.start + h1End + pMatch.index + pMatch[0].length - "</p>".length;
-          html = html.slice(0, pTextStart) + escapeHtml(plan.hero_subheadline) + html.slice(pTextEnd);
+          const pTextStart =
+            heroRange2.start + h1End + pMatch.index + pOpenLen;
+          const pTextEnd =
+            heroRange2.start +
+            h1End +
+            pMatch.index +
+            pMatch[0].length -
+            "</p>".length;
+          html =
+            html.slice(0, pTextStart) +
+            escapeHtml(plan.hero_subheadline) +
+            html.slice(pTextEnd);
           filled++;
         }
       }
     }
   }
 
-  // 3. Key benefits — ищем по порядку предпочтений секции
+  // 4. Key benefits
   if (plan.key_benefits && plan.key_benefits.length >= 3) {
-    const benefitsSectionIds = ["benefits", "features", "why-us", "services", "about"];
+    const benefitsSectionIds = [
+      "benefits",
+      "features",
+      "why-us",
+      "services",
+      "about",
+    ];
     let injectedBenefits = false;
     for (const sid of benefitsSectionIds) {
       const range = findSectionRange(html, sid);
@@ -264,7 +368,28 @@ export function injectPlanIntoTemplate(
       }
     }
     if (!injectedBenefits) {
-      logger.info(SCOPE, `Couldn't find suitable section for benefits in template`);
+      logger.info(
+        SCOPE,
+        `Couldn't find suitable section for benefits in template`,
+      );
+    }
+  }
+
+  // 5. Social proof line
+  if (plan.social_proof_line) {
+    const r = replaceSocialProof(html, plan.social_proof_line);
+    if (r.replaced) {
+      html = r.html;
+      filled++;
+    }
+  }
+
+  // 6. CTA microcopy
+  if (plan.cta_microcopy) {
+    const r = injectCtaMicrocopy(html, plan.cta_microcopy);
+    if (r.replaced) {
+      html = r.html;
+      filled++;
     }
   }
 

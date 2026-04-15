@@ -1,0 +1,153 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { injectPlanIntoTemplate } from "~/lib/services/skeletonInjector";
+import type { Plan } from "~/lib/utils/planSchema";
+
+const BASE_TEMPLATE = `<!DOCTYPE html>
+<html><head><title>Default Title</title></head><body>
+<section id="hero">
+  <h1>Default headline</h1>
+  <p>Default subheadline text.</p>
+  <a href="#menu" class="btn">CTA Button</a>
+</section>
+<section id="features">
+  <h2>Features title</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Default benefit 1</h3>
+      <p>Default description 1.</p>
+    </div>
+    <div class="card">
+      <h3>Default benefit 2</h3>
+      <p>Default description 2.</p>
+    </div>
+    <div class="card">
+      <h3>Default benefit 3</h3>
+      <p>Default description 3.</p>
+    </div>
+  </div>
+</section>
+<section id="testimonials">
+  <p>Default testimonial.</p>
+</section>
+</body></html>`;
+
+const FULL_PLAN: Plan = {
+  business_type: "кофейня",
+  target_audience: "офисные",
+  tone: "тёплый",
+  style_hints: "",
+  color_mood: "warm-pastel",
+  sections: ["hero", "features"],
+  keywords: [],
+  cta_primary: "Смотреть",
+  language: "ru",
+  suggested_template_id: "coffee-shop",
+  hero_headline: "Кофе варят те, кто им живёт",
+  hero_subheadline: "Обжарка каждую пятницу из Колумбии.",
+  key_benefits: [
+    { title: "Свежесть", description: "Зерно в помол через 7 дней." },
+    { title: "Бариста", description: "3 месяца стажировки." },
+    { title: "V60", description: "Альтернативные методы." },
+  ],
+  social_proof_line: "Нам доверяют 500+ гостей ежедневно",
+  cta_microcopy: "Первая чашка бесплатно",
+};
+
+beforeEach(() => {
+  delete process.env.NIT_SKELETON_INJECT_ENABLED;
+});
+
+describe("injectPlanIntoTemplate — расширенные слоты", () => {
+  it("заменяет <title> на hero_headline — business_type", () => {
+    const r = injectPlanIntoTemplate(BASE_TEMPLATE, FULL_PLAN);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.html).toContain("<title>");
+      expect(r.html).toContain("Кофе варят те, кто им живёт — кофейня");
+      expect(r.html).not.toContain("Default Title");
+    }
+  });
+
+  it("подставляет social_proof_line в #testimonials", () => {
+    const r = injectPlanIntoTemplate(BASE_TEMPLATE, FULL_PLAN);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.html).toContain("Нам доверяют 500+ гостей");
+      expect(r.html).not.toContain("Default testimonial");
+    }
+  });
+
+  it("вставляет cta_microcopy после первой <a> в hero", () => {
+    const r = injectPlanIntoTemplate(BASE_TEMPLATE, FULL_PLAN);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.html).toContain("cta-microcopy");
+      expect(r.html).toContain("Первая чашка бесплатно");
+      // Проверяем что вставлено ПОСЛЕ </a> кнопки
+      const aIdx = r.html.indexOf("</a>");
+      const microIdx = r.html.indexOf("cta-microcopy");
+      expect(microIdx).toBeGreaterThan(aIdx);
+    }
+  });
+
+  it("cta_microcopy перезаписывается при повторном вызове (идемпотентность)", () => {
+    const r1 = injectPlanIntoTemplate(BASE_TEMPLATE, FULL_PLAN);
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    const r2 = injectPlanIntoTemplate(r1.html, {
+      ...FULL_PLAN,
+      cta_microcopy: "Новый текст",
+    });
+    expect(r2.ok).toBe(true);
+    if (r2.ok) {
+      expect(r2.html).toContain("Новый текст");
+      expect(r2.html).not.toContain("Первая чашка бесплатно");
+      // Должна быть ровно одна cta-microcopy
+      const matches = (r2.html.match(/cta-microcopy/g) ?? []).length;
+      expect(matches).toBe(1);
+    }
+  });
+
+  it("social_proof пропускается если нет подходящей секции (не ломает ok)", () => {
+    const noTestimonialsTemplate = `<html><head><title>X</title></head><body>
+      <section id="hero"><h1>X</h1><p>Y</p><a href="#">btn</a></section>
+      <section id="features">
+        <div><h3>A</h3><p>1</p></div>
+        <div><h3>B</h3><p>2</p></div>
+        <div><h3>C</h3><p>3</p></div>
+      </section>
+    </body></html>`;
+    const r = injectPlanIntoTemplate(noTestimonialsTemplate, FULL_PLAN);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      // social_proof не смогли вставить но остальные слоты ок, fillRatio выше порога
+      expect(r.fillRatio).toBeGreaterThanOrEqual(0.6);
+      expect(r.html).not.toContain("Нам доверяют");
+    }
+  });
+
+  it("slotsTotal учитывает все 6 слотов при полном plan", () => {
+    const r = injectPlanIntoTemplate(BASE_TEMPLATE, FULL_PLAN);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.slotsTotal).toBe(6); // title, hero_headline, hero_sub, benefits, social, cta
+      expect(r.slotsFilled).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it("экранирует HTML в новых слотах тоже", () => {
+    const xss: Plan = {
+      ...FULL_PLAN,
+      cta_microcopy: "<script>alert(1)</script>",
+      social_proof_line: "<img src=x onerror=y>",
+    };
+    const r = injectPlanIntoTemplate(BASE_TEMPLATE, xss);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.html).not.toContain("<script>alert(1)");
+      expect(r.html).toContain("&lt;script&gt;");
+      expect(r.html).not.toContain("<img src=x");
+      expect(r.html).toContain("&lt;img");
+    }
+  });
+});

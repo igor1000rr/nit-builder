@@ -26,6 +26,13 @@ const MAX_MESSAGE_LEN = 500;
 export type FeedbackRecordMode = "create" | "polish";
 export type FeedbackRecordOutcome = "success" | "error";
 export type FeedbackInjectMethod = "skeleton" | "coder";
+/**
+ * Способ выполнения polish-генерации (Tier 3.5):
+ * - 'css'     — applyCssPatch, generateObject CssPatchSchema (~200-500 prompt токенов)
+ * - 'section' — section-only rewrite, узкий контекст одной <section> (~400 prompt)
+ * - 'full'    — full HTML rewrite, передан весь currentHtml (~1500-3000 prompt)
+ */
+export type FeedbackPolishScope = "css" | "section" | "full";
 
 export type FeedbackRecord = {
   /** ISO-8601 timestamp. */
@@ -44,6 +51,8 @@ export type FeedbackRecord = {
   /** Для polish-режима. */
   polishIntent?: "css_patch" | "full_rewrite";
   polishTargetSection?: string;
+  /** Какой scope контекста реально использовался в polish (не путать с polishIntent — тот про намерение, этот про факт). */
+  polishScope?: FeedbackPolishScope;
   cssPatchRuleCount?: number;
   /** Только при outcome="error". */
   errorReason?: string;

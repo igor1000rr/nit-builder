@@ -6,12 +6,16 @@
  *   6b47c9b: adaptive k по top-1 score + компактный TOON-формат
  *   d34a4ed: contextual retrieval — query префиксируется [niche|mood] перед embed
  *   7dce2fc: cross-encoder reranker поверх cosine кандидатов
- *   HEAD:    hybrid BM25 + dense с RRF fusion перед reranker
+ *   prev:    hybrid BM25 + dense с RRF fusion перед reranker
+ *   HEAD:    extended trigger boost (Tier 4) — буст seeds с pricing/faq/hours/
+ *            contact когда query содержит соответствующие trigger-слова
  *
- * Трёхэтапный pipeline:
+ * Pipeline:
  *   1. Параллельно: cosine top-N (вкл. contextual) + BM25 top-N
  *   2. RRF fusion: объединяем ранжирования в единый топ → берём top-RERANK_POOL
- *   3. Cross-encoder rerank этого пула → финальный выбор adaptive k
+ *   3. Cross-encoder rerank этого пула
+ *   4. Extended trigger boost (Tier 4): +BOOST за каждое matched поле
+ *   5. Adaptive k по top-1 финального score
  *
  * Почему BM25 рядом с dense:
  *   - dense эмбеддинги теряют редкие точные термины: BMW, IELTS 7.0, M&A,
@@ -30,6 +34,7 @@
  * NIT_CONTEXTUAL_RETRIEVAL_ENABLED (default 1) — kill-switch контекста
  * NIT_RERANKER_ENABLED (default 1) — kill-switch reranker
  * NIT_HYBRID_BM25_ENABLED (default 1) — kill-switch BM25 fusion
+ * NIT_EXTENDED_TRIGGER_BOOST_ENABLED (default 1) — kill-switch trigger boost
  */
 
 import { search, bm25Search, type SearchResult, type BM25SearchResult } from "~/lib/services/ragStore";
@@ -39,6 +44,11 @@ import { formatPlanCompact, approxTokenCount } from "~/lib/services/compactPlanF
 import { buildContextualText, extractQueryContext } from "~/lib/services/contextualEmbed";
 import { rerank, isRerankerDisabled } from "~/lib/services/ragReranker";
 import { reciprocalRankFusion } from "~/lib/services/rrfFusion";
+import {
+  detectExtendedTriggers,
+  applyExtendedTriggerBoost,
+  type ExtendedTriggers,
+} from "~/lib/services/extendedTriggers";
 import type { Plan } from "~/lib/utils/planSchema";
 
 const SCOPE = "fewShotBuilder";
@@ -95,6 +105,10 @@ export type FewShotResult = {
   reranked: boolean;
   /** Использовался ли hybrid BM25+dense fusion (для дебага и eval). */
   hybrid: boolean;
+  /** Какие extended-триггеры обнаружены в query (Tier 4). */
+  triggers?: ExtendedTriggers;
+  /** Сколько кандидатов забустилось extended-trigger boost-ом (Tier 4). */
+  triggerBoosted?: number;
 };
 
 /**
@@ -207,7 +221,19 @@ export async function buildFewShotPlansAdaptive(
       finalCandidates = fusedCandidates.map((c) => ({ result: c, finalScore: c.score }));
     }
 
-    // === Шаг 5: Adaptive k по top-1 финального score ===
+    // === Шаг 4.5 (Tier 4): Extended trigger boost ===
+    // Если query содержит trigger-слова (тариф/FAQ/часы/телефон), бустим
+    // кандидатов у которых в плане заполнены соответствующие extended-поля.
+    // Без триггеров — no-op, baseline сохраняется.
+    const triggers = detectExtendedTriggers(query);
+    const boostResult = applyExtendedTriggerBoost(
+      finalCandidates,
+      triggers,
+      (sr) => (sr.doc.metadata as { plan?: Plan }).plan,
+    );
+    finalCandidates = boostResult.candidates;
+
+    // === Шаг 5: Adaptive k по top-1 финального score (с учётом boost) ===
     const topScore = finalCandidates[0]!.finalScore;
     const k = usedRerank
       ? decideAdaptiveKFromRerank(topScore, getMaxK())
@@ -218,7 +244,15 @@ export async function buildFewShotPlansAdaptive(
         SCOPE,
         `Top score ${topScore.toFixed(2)} below threshold (${usedRerank ? "rerank" : "cosine"}), skipping few-shot (niche=${detectedNiche ?? "?"}, hybrid=${useHybrid})`,
       );
-      return { ...empty, topScore, detectedNiche, reranked: usedRerank, hybrid: useHybrid };
+      return {
+        ...empty,
+        topScore,
+        detectedNiche,
+        reranked: usedRerank,
+        hybrid: useHybrid,
+        triggers,
+        triggerBoosted: boostResult.boostedCount,
+      };
     }
 
     // === Шаг 6: Форматирование блока ===
@@ -229,13 +263,21 @@ export async function buildFewShotPlansAdaptive(
         if (!meta.plan) return "";
         const compact = formatPlanCompact(meta.plan);
         const scorePercent = (c.finalScore * 100).toFixed(0);
-        return `Пример ${i + 1} (релевантность ${scorePercent}%, запрос был: "${meta.query ?? c.result.doc.text}"):\n${compact}`;
+        return `Пример ${i + 1} (релевантность ${scorePercent}%, запрос был: \"${meta.query ?? c.result.doc.text}\"):\n${compact}`;
       })
       .filter(Boolean)
       .join("\n\n");
 
     if (!formatted) {
-      return { ...empty, topScore, detectedNiche, reranked: usedRerank, hybrid: useHybrid };
+      return {
+        ...empty,
+        topScore,
+        detectedNiche,
+        reranked: usedRerank,
+        hybrid: useHybrid,
+        triggers,
+        triggerBoosted: boostResult.boostedCount,
+      };
     }
 
     const block = `\n\nПРИМЕРЫ ХОРОШИХ ПЛАНОВ ИЗ БАЗЫ (учись на структуре копирайта и конкретике фактов, но адаптируй под текущий запрос — не копируй дословно):\n${formatted}\n`;
@@ -243,7 +285,7 @@ export async function buildFewShotPlansAdaptive(
 
     logger.info(
       SCOPE,
-      `Few-shot: top=${topScore.toFixed(2)} (${usedRerank ? "rerank" : "cosine"}), k=${selected.length}, ~${approxTokens} tokens, niche=${detectedNiche ?? "?"}, contextual=${queryEmbedText ? "yes" : "no"}, hybrid=${useHybrid} (cos=${cosineCandidates.length}, bm25=${bm25Candidates.length})`,
+      `Few-shot: top=${topScore.toFixed(2)} (${usedRerank ? "rerank" : "cosine"}), k=${selected.length}, ~${approxTokens} tokens, niche=${detectedNiche ?? "?"}, contextual=${queryEmbedText ? "yes" : "no"}, hybrid=${useHybrid} (cos=${cosineCandidates.length}, bm25=${bm25Candidates.length}), triggerBoost=${boostResult.boostedCount}`,
     );
 
     return {
@@ -254,6 +296,8 @@ export async function buildFewShotPlansAdaptive(
       detectedNiche,
       reranked: usedRerank,
       hybrid: useHybrid,
+      triggers,
+      triggerBoosted: boostResult.boostedCount,
     };
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;

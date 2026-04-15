@@ -5,7 +5,7 @@
  * вместо отправки всего HTML (~6000-15000 chars) Coder-у мы:
  *   1. Извлекаем только эту секцию по data-nit-section="X"
  *   2. Шлём небольшой промпт с этим фрагментом + запрос юзера
- *   3. Модель возвращает обновлённую <section>...</section>
+ *   3. Модель возвращает обновлённую секцию section
  *   4. Подставляем обратно через replaceSection
  *
  * Эффект:
@@ -16,8 +16,8 @@
  *
  * Когда НЕ срабатывает (фолбэк на full rewrite):
  *   - targetSection не определён (общий запрос типа "переделай сайт")
- *   - <section data-nit-section="X"> не найдена в HTML
- *   - модель вернула невалидный ответ (нет <section> в выводе)
+ *   - section data-nit-section="X" не найдена в HTML
+ *   - модель вернула невалидный ответ (нет section в выводе)
  *   - ENV NIT_SECTION_POLISH_ENABLED=0
  */
 
@@ -42,14 +42,11 @@ export type SectionExtractResult =
   | { found: false };
 
 /**
- * Найти <section> по sectionId. Приоритет:
+ * Найти секцию по sectionId. Приоритет:
  *   1. data-nit-section="X" (надёжный маркер от enrichSectionAnchors)
  *   2. id="X" (для случаев когда anchors не проставлены)
  *
  * Возвращает HTML секции + куски до и после для последующей сборки.
- * Для парных тегов <section>...</section> используется простой не-вложенный поиск:
- * это безопасно потому что HTML-валидация запрещает вложенные <section> в семантике
- * (хотя технически возможно — но для наших шаблонов это не проблема).
  */
 export function extractSection(
   html: string,
@@ -104,7 +101,7 @@ export function replaceSection(
 }
 
 /**
- * Изолировать первый <section>...</section> блок из ответа модели.
+ * Изолировать первый section блок из ответа модели.
  * Модель может обернуть в ```html, добавить пояснения — стрипаем всё лишнее.
  */
 export function extractSectionFromResponse(raw: string): string | null {
@@ -117,29 +114,33 @@ export function extractSectionFromResponse(raw: string): string | null {
   return match ? match[0] : null;
 }
 
-const SECTION_POLISHER_SYSTEM_PROMPT = `Ты — HTML-редактор отдельной секции. Юзер прислал тебе фрагмент <section>...</section> и просит внести точечную правку.
-
-ЖЁСТКИЕ ПРАВИЛА:
-1. Возвращаешь ТОЛЬКО обновлённый <section>...</section> блок целиком. Без обёрток <!DOCTYPE>, <html>, <head>, <body>.
-2. Сохраняешь все атрибуты открывающего <section>: id, class, data-nit-section, role, aria-*. Не трогай их.
-3. Сохраняешь Tailwind-классы и адаптивность (sm:, md:, lg:) если правка их не касается.
-4. Внеси ТОЛЬКО то что просит юзер. Не переписывай остальное.
-5. Никаких import, require, ссылок на локальные файлы. Только inline SVG, emoji, Unsplash, CDN.
-6. Никаких ```, никаких комментариев до или после. Первый символ ответа — <section, последний — >.`;
+const SECTION_POLISHER_SYSTEM_PROMPT = [
+  "Ты — HTML-редактор отдельной секции. Юзер прислал тебе фрагмент section и просит внести точечную правку.",
+  "",
+  "ЖЁСТКИЕ ПРАВИЛА:",
+  "1. Возвращаешь ТОЛЬКО обновлённый блок section целиком. Без обёрток DOCTYPE, html, head, body.",
+  "2. Сохраняешь все атрибуты открывающего section: id, class, data-nit-section, role, aria-*. Не трогай их.",
+  "3. Сохраняешь Tailwind-классы и адаптивность (sm:, md:, lg:) если правка их не касается.",
+  "4. Внеси ТОЛЬКО то что просит юзер. Не переписывай остальное.",
+  "5. Никаких import, require, ссылок на локальные файлы. Только inline SVG, emoji, Unsplash, CDN.",
+  "6. Никаких тройных бэктиков, никаких комментариев до или после. Первый символ ответа — <section, последний — >.",
+].join("\n");
 
 function buildSectionPolishUserMessage(params: {
   sectionHtml: string;
   userRequest: string;
   sectionId: string;
 }): string {
-  return `СЕКЦИЯ "${params.sectionId}":
-\`\`\`html
-${params.sectionHtml}
-\`\`\`
-
-ЗАПРОС: ${params.userRequest}
-
-Верни обновлённый <section>...</section> целиком, без обёрток.`;
+  return [
+    `СЕКЦИЯ "${params.sectionId}":`,
+    "```html",
+    params.sectionHtml,
+    "```",
+    "",
+    `ЗАПРОС: ${params.userRequest}`,
+    "",
+    "Верни обновлённый блок section целиком, без обёрток.",
+  ].join("\n");
 }
 
 export type SectionPolishStreamResult = {

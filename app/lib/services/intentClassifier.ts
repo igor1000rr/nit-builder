@@ -18,8 +18,10 @@ export type ClassificationResult = {
   reason: string;
   styleHits: number;
   structuralHits: number;
-  /** Каноническое id секции если правка адресована конкретной секции. */
+  /** Каноническое id секции (первое совпадение) если правка адресована конкретной секции. */
   targetSection?: string;
+  /** Все упомянутые в запросе канонические секции (дедуплицированно). */
+  targetSections: string[];
 };
 
 const STYLE_PATTERNS: RegExp[] = [
@@ -122,6 +124,7 @@ const SECTION_ALIASES: Array<[RegExp, string]> = [
   [/\bгеро(й|я|е|ем)\b/i, "hero"],
   [/\bглавн(ый|ые)\s+(экран|блок|экране)/i, "hero"],
   [/\bшап(ка|ку|ке|очк)/i, "hero"],
+  [/\bпервый\s+экран/i, "hero"],
   [/\bверхний\s+блок/i, "hero"],
   [/\bhero\b/i, "hero"],
   [/\bheader\b/i, "hero"],
@@ -141,9 +144,13 @@ const SECTION_ALIASES: Array<[RegExp, string]> = [
   [/\bработы\b/i, "gallery"],
   [/\bgallery\b/i, "gallery"],
 
-  // Contact
+  // Contact (объединяет contact + footer + подвал — в большинстве шаблонов это одна нижняя секция)
   [/\bконтакт\w*/i, "contact"],
   [/\bcontact\b/i, "contact"],
+  [/\bфутер/i, "contact"],
+  [/\bподвал/i, "contact"],
+  [/\bнижний\s+блок/i, "contact"],
+  [/\bfooter\b/i, "contact"],
 
   // Booking
   [/\bзапис(и|ь|ю)/i, "booking"],
@@ -180,12 +187,6 @@ const SECTION_ALIASES: Array<[RegExp, string]> = [
   [/\bрасписан\w*/i, "schedule"],
   [/\bschedule\b/i, "schedule"],
 
-  // Footer
-  [/\bфутер/i, "footer"],
-  [/\bподвал/i, "footer"],
-  [/\bнижний\s+блок/i, "footer"],
-  [/\bfooter\b/i, "footer"],
-
   // CTA
   [/\bкнопка\s+(действия|призыва)/i, "cta"],
   [/\bcta\b/i, "cta"],
@@ -202,14 +203,28 @@ function countMatches(text: string, patterns: RegExp[]): number {
 }
 
 /**
- * Извлечь каноническое id секции из запроса пользователя.
- * Возвращает первое совпадение в порядке специфичности.
+ * Извлечь каноническое id первой упомянутой секции.
+ * Backward-compat для старого API. Для multi-section — используй extractTargetSections.
  */
 export function extractTargetSection(text: string): string | undefined {
   for (const [re, section] of SECTION_ALIASES) {
     if (re.test(text)) return section;
   }
   return undefined;
+}
+
+/**
+ * Извлечь все канонические id упомянутых секций из запроса.
+ * Дедуплицирует — даже если "hero" упомянут трижды разными синонимами,
+ * вернётся один раз.
+ */
+export function extractTargetSections(text: string): string[] {
+  const set = new Set<string>();
+  if (!text || !text.trim()) return [];
+  for (const [re, section] of SECTION_ALIASES) {
+    if (re.test(text)) set.add(section);
+  }
+  return Array.from(set);
 }
 
 export function classifyPolishIntent(userRequest: string): ClassificationResult {
@@ -222,21 +237,26 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
       reason: "empty request",
       styleHits: 0,
       structuralHits: 0,
+      targetSections: [],
     };
   }
 
   const styleHits = countMatches(text, STYLE_PATTERNS);
   const structuralHits = countMatches(text, STRUCTURAL_PATTERNS);
-  const targetSection = extractTargetSection(text);
+  const targetSections = extractTargetSections(text);
+  const targetSection = targetSections[0];
+  const scopedSuffix =
+    targetSections.length > 0 ? ` (scoped to: ${targetSections.join(", ")})` : "";
 
   if (structuralHits >= 1) {
     return {
       intent: "full_rewrite",
       confidence: structuralHits >= 2 ? "high" : "medium",
-      reason: `structural keywords: ${structuralHits}`,
+      reason: `structural keywords: ${structuralHits}${scopedSuffix}`,
       styleHits,
       structuralHits,
       targetSection,
+      targetSections,
     };
   }
 
@@ -244,19 +264,21 @@ export function classifyPolishIntent(userRequest: string): ClassificationResult 
     return {
       intent: "css_patch",
       confidence: styleHits >= 2 ? "high" : "medium",
-      reason: `style keywords: ${styleHits}${targetSection ? ` + section: ${targetSection}` : ""}`,
+      reason: `style keywords: ${styleHits}${scopedSuffix}`,
       styleHits,
       structuralHits,
       targetSection,
+      targetSections,
     };
   }
 
   return {
     intent: "full_rewrite",
     confidence: "low",
-    reason: "no signal, default to safe full rewrite",
+    reason: `no signal, default to safe full rewrite${scopedSuffix}`,
     styleHits,
     structuralHits,
     targetSection,
+    targetSections,
   };
 }

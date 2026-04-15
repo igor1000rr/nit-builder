@@ -4,6 +4,8 @@
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
+import { isAppwriteConfigured, consumeGuestLimit } from "~/lib/server/appwrite.server";
+import { logger } from "~/lib/utils/logger";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const COOKIE_NAME = "nit_session";
@@ -133,6 +135,12 @@ export function isAuthEnabled(): boolean {
 }
 
 // ─── Guest limit (by IP) ─────────────────────────────
+//
+// Стратегия: Appwrite-first (persistent через PM2 reload), in-memory fallback
+// если Appwrite не настроен ИЛИ упал. Fallback fail-open — лучше пропустить
+// несколько лишних гостевых запросов чем уронить сайт из-за временной
+// недоступности БД.
+
 const guestCounts = new Map<string, { count: number; resetAt: number }>();
 const GUEST_DAILY = parseInt(process.env.GUEST_DAILY_LIMIT ?? "10", 10);
 const GUEST_WINDOW = 24 * 60 * 60 * 1000;
@@ -145,20 +153,39 @@ function getIp(request: Request): string {
   );
 }
 
-export function checkGuestLimit(request: Request): { allowed: boolean; remaining: number } {
-  const ip = getIp(request);
+function checkGuestLimitInMemory(ip: string): { allowed: boolean; remaining: number } {
   const now = Date.now();
-
   let entry = guestCounts.get(ip);
   if (!entry || now > entry.resetAt) {
     entry = { count: 0, resetAt: now + GUEST_WINDOW };
     guestCounts.set(ip, entry);
   }
-
   if (entry.count >= GUEST_DAILY) return { allowed: false, remaining: 0 };
-
   entry.count++;
   return { allowed: true, remaining: GUEST_DAILY - entry.count };
+}
+
+export async function checkGuestLimit(
+  request: Request,
+): Promise<{ allowed: boolean; remaining: number }> {
+  const ip = getIp(request);
+
+  if (isAppwriteConfigured()) {
+    try {
+      const r = await consumeGuestLimit(ip, GUEST_DAILY, GUEST_WINDOW);
+      return { allowed: r.allowed, remaining: r.remaining };
+    } catch (err) {
+      // Appwrite недоступен — fall back на in-memory чтобы сайт не упал.
+      // Логируем чтобы было видно в мониторинге.
+      logger.warn(
+        "auth",
+        `Appwrite guest-limit failed, falling back to in-memory: ${(err as Error).message}`,
+      );
+      return checkGuestLimitInMemory(ip);
+    }
+  }
+
+  return checkGuestLimitInMemory(ip);
 }
 
 /** Только для тестов: сброс in-memory guest-count карты. */

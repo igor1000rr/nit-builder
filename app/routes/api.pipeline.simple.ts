@@ -43,7 +43,7 @@ export async function action({ request }: { request: Request }) {
   if (csrfError) return csrfError;
 
   if (isGuest) {
-    const g = checkGuestLimit(request);
+    const g = await checkGuestLimit(request);
     if (!g.allowed) {
       return Response.json(
         { error: "Дневной лимит исчерпан. Попробуй завтра или задай NIT_API_SECRET.", code: "GUEST_LIMIT" },

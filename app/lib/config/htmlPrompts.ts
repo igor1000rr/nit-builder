@@ -97,7 +97,7 @@ export const CODER_SYSTEM_PROMPT = `Ты — HTML-Кодер. Адаптируе
 - Никаких ссылок на локальные файлы. Только CDN, inline SVG, emoji, Unsplash.
 - Интерактивность: Alpine.js (https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js) или vanilla JS.
 - Служебные маркеры <!-- ═══ SECTION: X ═══ --> НЕ копируй в вывод.
-- ТОЛЬКО HTML. Без \`\`\`, без комментариев до или после. Первая строка: <!DOCTYPE html>.`;
+- ТОЛЬКО HTML. Без markdown, без \`\`\`, без комментариев до или после. Первая строка: <!DOCTYPE html>.`;
 
 type PlanLike = Partial<Plan> & { color_mood?: string; language?: Language };
 

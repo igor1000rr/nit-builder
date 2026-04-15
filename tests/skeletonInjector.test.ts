@@ -3,7 +3,7 @@ import { injectPlanIntoTemplate } from "~/lib/services/skeletonInjector";
 import type { Plan } from "~/lib/utils/planSchema";
 
 const BASE_TEMPLATE = `<!DOCTYPE html>
-<html><body>
+<html><head><title>Default title</title></head><body>
 <section id="hero">
   <h1>Default headline</h1>
   <p>Default subheadline text.</p>
@@ -25,6 +25,9 @@ const BASE_TEMPLATE = `<!DOCTYPE html>
       <p>Default description 3.</p>
     </div>
   </div>
+</section>
+<section id="testimonials">
+  <p>Default social proof line.</p>
 </section>
 </body></html>`;
 
@@ -122,13 +125,16 @@ describe("injectPlanIntoTemplate", () => {
   });
 
   it("fallback на about если features/benefits отсутствуют", () => {
-    const aboutTemplate = `<html><body>
-      <section id="hero"><h1>X</h1><p>Y</p></section>
+    // Шаблон должен содержать достаточно слотов для прохождения SLOT_FILL_THRESHOLD=0.6:
+    // title + h1 + p + benefits(about) + social_proof + cta_microcopy = 6/6
+    const aboutTemplate = `<html><head><title>X</title></head><body>
+      <section id="hero"><h1>X</h1><p>Y</p><a href="#">CTA</a></section>
       <section id="about">
         <h3>Card 1</h3><p>Desc 1</p>
         <h3>Card 2</h3><p>Desc 2</p>
         <h3>Card 3</h3><p>Desc 3</p>
       </section>
+      <section id="testimonials"><p>Old</p></section>
     </body></html>`;
     const r = injectPlanIntoTemplate(aboutTemplate, FULL_PLAN);
     expect(r.ok).toBe(true);

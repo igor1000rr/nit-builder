@@ -12,6 +12,13 @@ vi.mock("~/lib/services/ragEmbeddings", () => ({
   }),
   isRagDisabled: vi.fn(() => false),
   resetEmbeddingState: vi.fn(),
+  // Tier 4: Matryoshka + asymmetric prefix support
+  // Без этих экспортов ragStore.ts падает с TypeError при первом вызове
+  // loadFromDisk/ensureEmbedding (требуется реальный модуль, mock должен покрыть всю API).
+  getTargetEmbeddingDims: vi.fn(() => null),
+  getEmbeddingPrefix: vi.fn(() => ""),
+  applyEmbeddingPrefix: vi.fn((text: string) => text),
+  truncateAndRenormalize: vi.fn((vec: number[]) => vec),
 }));
 
 import {

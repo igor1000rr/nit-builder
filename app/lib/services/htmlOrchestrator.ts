@@ -109,6 +109,8 @@ export type PipelineEvent =
       slotsFilled: number;
       slotsTotal: number;
       fillRatio: number;
+      /** Tier 4: сколько расширенных слотов (pricing/faq/hours/contact) заполнено (0..4). */
+      extendedSlotsFilled: number;
     }
   | { type: "error"; message: string };
 
@@ -482,6 +484,7 @@ export async function* executeHtmlSimple(
 
   if (injection.ok) {
     metrics.skeletonInjectSucceeded(template.id, injection.fillRatio);
+    metrics.skeletonExtendedSlotsFilled(injection.extendedSlotsFilled);
     const finalHtml = stripCodeFences(injection.html);
     memory.currentHtml = finalHtml;
     memory.updatedAt = Date.now();
@@ -491,7 +494,7 @@ export async function* executeHtmlSimple(
 
     logger.info(
       SCOPE,
-      `Skeleton-injection сработала: ${template.id}, slots=${injection.slotsFilled}/${injection.slotsTotal}, fillRatio=${injection.fillRatio.toFixed(2)}, totalMs=${totalMs} (Coder пропущен)`,
+      `Skeleton-injection сработала: ${template.id}, slots=${injection.slotsFilled}/${injection.slotsTotal}, ext=${injection.extendedSlotsFilled}, fillRatio=${injection.fillRatio.toFixed(2)}, totalMs=${totalMs} (Coder пропущен)`,
     );
 
     recordGeneration({
@@ -515,6 +518,7 @@ export async function* executeHtmlSimple(
       slotsFilled: injection.slotsFilled,
       slotsTotal: injection.slotsTotal,
       fillRatio: injection.fillRatio,
+      extendedSlotsFilled: injection.extendedSlotsFilled,
     };
     yield { type: "step_complete", html: finalHtml };
     return;
@@ -932,8 +936,6 @@ export async function* executeHtmlPolish(
   }
 
   // === Tier 3.5: section-only polish ===
-  // Если intent=full_rewrite + targetSection определён + секция найдена в HTML —
-  // отправляем Coder-у только её. Экономия 70-90% токенов на point-edit запросах.
   if (intent === "full_rewrite" && targetSection && isSectionPolishEnabled()) {
     const extracted = extractSection(memory.currentHtml, targetSection);
     if (extracted.found) {
@@ -954,7 +956,6 @@ export async function* executeHtmlPolish(
       };
 
       try {
-        // Бюджет: ~2.5x от размера секции на completion (с запасом на расширение)
         const sectionTokensEstimate = Math.ceil(sectionChars / 3);
         const maxOutput = Math.min(
           Math.max(sectionTokensEstimate * 3, 1500),
@@ -995,7 +996,6 @@ export async function* executeHtmlPolish(
           };
         }
 
-        // Truncated section response — ответ не закроется тегом, fallback на full rewrite
         if (polishFinishReason === "length") {
           metrics.sectionPolishSkipped("truncated_response");
           logger.warn(

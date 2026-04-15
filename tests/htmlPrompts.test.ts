@@ -47,7 +47,7 @@ describe("buildCoderPrompt", () => {
     business_type: "кофейня",
     tone: "тёплый",
     sections: ["hero", "menu"],
-    color_mood: "warm-pastel",
+    color_mood: "warm-pastel" as const,
     cta_primary: "Заказать",
     language: "ru" as const,
   };

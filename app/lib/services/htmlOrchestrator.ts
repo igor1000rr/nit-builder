@@ -46,7 +46,12 @@ import {
   cleanRawForTail,
   extractTail,
 } from "~/lib/services/continuation";
-import { buildFewShotPlansBlock } from "~/lib/services/fewShotBuilder";
+import { buildFewShotPlansAdaptive } from "~/lib/services/fewShotBuilder";
+import {
+  generatePlanReasoning,
+  buildAugmentedPlannerPrompt,
+  isReasoningEnabled,
+} from "~/lib/services/planReasoning";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -79,7 +84,8 @@ export type PipelineEvent =
       prompt: number;
       completion: number;
     }
-  | { type: "rag_fewshot"; count: number }
+  | { type: "rag_fewshot"; count: number; topScore: number; approxTokens: number }
+  | { type: "plan_reasoning"; chars: number }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
@@ -120,22 +126,48 @@ function stripCodeFences(text: string): string {
   return enrichSectionAnchors(repairTruncatedHtml(cleaned));
 }
 
+/**
+ * Ядро Planner pipeline. Используется как в prod-пайплайне (executeHtmlSimple),
+ * так и в eval-runner-е (runPlannerForEval). Оркестрирует:
+ *   1. plan cache check
+ *   2. template retriever (shortlist)
+ *   3. RAG few-shot (adaptive k)
+ *   4. двухшаговый reasoning (опционально через ENV)
+ *   5. generateObject с PlanSchema
+ *   6. fallback на generateText если generateObject упал
+ *   7. synthetic plan как last resort
+ */
 async function obtainPlan(
   model: ReturnType<typeof getModel>,
   sanitizedMessage: string,
   signal: AbortSignal,
   skipCache: boolean,
-): Promise<{ plan: Plan; cached: boolean; fewShotCount: number }> {
+): Promise<{
+  plan: Plan;
+  cached: boolean;
+  fewShotCount: number;
+  fewShotTopScore: number;
+  fewShotApproxTokens: number;
+  reasoningChars: number;
+}> {
   if (!skipCache) {
     const cached = getCachedPlan(sanitizedMessage);
     if (cached) {
       logger.info(SCOPE, `Plan cache hit for: ${sanitizedMessage.slice(0, 60)}`);
       metrics.planCacheHit();
-      return { plan: cached, cached: true, fewShotCount: 0 };
+      return {
+        plan: cached,
+        cached: true,
+        fewShotCount: 0,
+        fewShotTopScore: 0,
+        fewShotApproxTokens: 0,
+        reasoningChars: 0,
+      };
     }
     metrics.planCacheMiss();
   }
 
+  // Template retriever shortlist
   let candidateIds: string[] | undefined;
   try {
     const retrieved = await retrieveTemplates(sanitizedMessage, 5, signal);
@@ -147,30 +179,54 @@ async function obtainPlan(
     if ((retrieverErr as Error).name === "AbortError") throw retrieverErr;
   }
 
+  // RAG few-shot (adaptive k + compact format)
   let fewShotBlock = "";
   let fewShotCount = 0;
+  let fewShotTopScore = 0;
+  let fewShotApproxTokens = 0;
   try {
-    fewShotBlock = await buildFewShotPlansBlock(sanitizedMessage, signal);
-    if (fewShotBlock) {
-      // примерно: считаем "Пример N" в блоке
-      fewShotCount = (fewShotBlock.match(/Пример \d+/g) ?? []).length;
-    }
+    const fs = await buildFewShotPlansAdaptive(sanitizedMessage, signal);
+    fewShotBlock = fs.block;
+    fewShotCount = fs.count;
+    fewShotTopScore = fs.topScore;
+    fewShotApproxTokens = fs.approxTokens;
   } catch (ragErr) {
     if ((ragErr as Error).name === "AbortError") throw ragErr;
   }
 
+  // Two-step reasoning (первый шаг: свободный анализ)
+  let reasoning = "";
+  if (isReasoningEnabled()) {
+    try {
+      reasoning = await generatePlanReasoning(model, sanitizedMessage, signal);
+    } catch (err) {
+      if ((err as Error).name === "AbortError") throw err;
+      // graceful: продолжаем без reasoning
+    }
+  }
+  const reasoningChars = reasoning.length;
+  const augmentedPrompt = buildAugmentedPlannerPrompt(sanitizedMessage, reasoning);
+
+  // Step 2: structured generateObject
   try {
     const { object } = await generateObject({
       model,
       schema: PlanSchema,
       system: buildPlannerSystemPrompt(candidateIds, fewShotBlock),
-      prompt: sanitizedMessage,
+      prompt: augmentedPrompt,
       temperature: 0.3,
       abortSignal: signal,
       maxOutputTokens: 2500,
     });
     setCachedPlan(sanitizedMessage, object);
-    return { plan: object, cached: false, fewShotCount };
+    return {
+      plan: object,
+      cached: false,
+      fewShotCount,
+      fewShotTopScore,
+      fewShotApproxTokens,
+      reasoningChars,
+    };
   } catch (structErr) {
     if ((structErr as Error).name === "AbortError") throw structErr;
     logger.warn(
@@ -179,11 +235,12 @@ async function obtainPlan(
     );
   }
 
+  // Fallback: free-form generateText + manual JSON parse
   try {
     const { text: planRaw } = await generateText({
       model,
       system: buildPlannerPrompt(candidateIds, fewShotBlock),
-      prompt: sanitizedMessage,
+      prompt: augmentedPrompt,
       maxOutputTokens: 2500,
       temperature: 0.3,
       abortSignal: signal,
@@ -199,7 +256,14 @@ async function obtainPlan(
     const parsed = rawJson !== null ? PlanSchema.safeParse(rawJson) : null;
     if (parsed?.success) {
       setCachedPlan(sanitizedMessage, parsed.data);
-      return { plan: parsed.data, cached: false, fewShotCount };
+      return {
+        plan: parsed.data,
+        cached: false,
+        fewShotCount,
+        fewShotTopScore,
+        fewShotApproxTokens,
+        reasoningChars,
+      };
     }
     logger.warn(SCOPE, "Plan schema validation failed, using fallback plan");
   } catch (genErr) {
@@ -207,6 +271,7 @@ async function obtainPlan(
     logger.warn(SCOPE, `Fallback generateText failed: ${(genErr as Error).message}`);
   }
 
+  // Synthetic last resort
   const synthetic: Plan = {
     business_type: sanitizedMessage.slice(0, 100) || "универсальный сайт",
     target_audience: "",
@@ -219,7 +284,52 @@ async function obtainPlan(
     language: "ru",
     suggested_template_id: "blank-landing",
   };
-  return { plan: synthetic, cached: false, fewShotCount };
+  return {
+    plan: synthetic,
+    cached: false,
+    fewShotCount,
+    fewShotTopScore,
+    fewShotApproxTokens,
+    reasoningChars,
+  };
+}
+
+/**
+ * Public entry для eval-pipeline. Использует obtainPlan с skipCache=true,
+ * не пишет feedback и не трогает sessionMemory. Не используется в prod пайплайне —
+ * только в evalRunner.
+ */
+export async function runPlannerForEval(params: {
+  model: ReturnType<typeof getModel>;
+  sanitizedMessage: string;
+  signal: AbortSignal;
+}): Promise<{
+  plan: Plan | null;
+  fewShotCount: number;
+  usedReasoning: boolean;
+  error?: string;
+}> {
+  try {
+    const result = await obtainPlan(
+      params.model,
+      params.sanitizedMessage,
+      params.signal,
+      true, // всегда skipCache в eval
+    );
+    return {
+      plan: result.plan,
+      fewShotCount: result.fewShotCount,
+      usedReasoning: result.reasoningChars > 0,
+    };
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    return {
+      plan: null,
+      fewShotCount: 0,
+      usedReasoning: false,
+      error: (err as Error).message,
+    };
+  }
 }
 
 async function readUsage(
@@ -292,8 +402,16 @@ export async function* executeHtmlSimple(
     currentPlan = obtained.plan;
     planCachedFlag = obtained.cached;
     memory.planJson = obtained.plan;
+    if (obtained.reasoningChars > 0) {
+      yield { type: "plan_reasoning", chars: obtained.reasoningChars };
+    }
     if (obtained.fewShotCount > 0) {
-      yield { type: "rag_fewshot", count: obtained.fewShotCount };
+      yield {
+        type: "rag_fewshot",
+        count: obtained.fewShotCount,
+        topScore: obtained.fewShotTopScore,
+        approxTokens: obtained.fewShotApproxTokens,
+      };
     }
     yield { type: "plan_ready", plan: obtained.plan, cached: obtained.cached };
   } catch (err) {

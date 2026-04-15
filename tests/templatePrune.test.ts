@@ -72,11 +72,14 @@ describe("pruneTemplateForPlan", () => {
   });
 
   it("экономия символов пропорциональна вырезанным секциям", () => {
+    // 5 секций: hero auto-keep + "a" wanted → keep=2, remove=3 (b,c,d)
+    // Safety-проверка пропускает (kept >= 2).
     const bigSection = (id: string) =>
       `<!-- ═══ SECTION: ${id} ═══ -->\n<section id="${id}">${"x".repeat(5000)}</section>\n<!-- ═══ END SECTION ═══ -->`;
-    const html = `<html><body>${["hero", "a", "b", "c"].map(bigSection).join("\n")}</body></html>`;
-    const r = pruneTemplateForPlan(html, ["hero"]);
+    const html = `<html><body>${["hero", "a", "b", "c", "d"].map(bigSection).join("\n")}</body></html>`;
+    const r = pruneTemplateForPlan(html, ["a"]);
     expect(r.removed.length).toBe(3);
+    expect(r.removed.sort()).toEqual(["b", "c", "d"]);
     expect(html.length - r.html.length).toBeGreaterThan(14_000);
   });
 });

@@ -54,4 +54,47 @@ describe("checkAdminToken", () => {
     const r = checkAdminToken(req({ authorization: "bearer 0123456789abcdef" }));
     expect(r.ok).toBe(true);
   });
+
+  // ─── Дополнительные регрессионные кейсы ───────────────────────
+
+  it("401 для Authorization: Basic (не Bearer)", () => {
+    process.env.NIT_ADMIN_TOKEN = "0123456789abcdef";
+    const r = checkAdminToken(req({ authorization: "Basic dXNlcjpwYXNz" }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(401);
+  });
+
+  it("x-nit-admin-token приоритетнее Authorization", () => {
+    process.env.NIT_ADMIN_TOKEN = "0123456789abcdef";
+    const r = checkAdminToken(
+      req({
+        "x-nit-admin-token": "0123456789abcdef",
+        authorization: "Bearer wrongtokenwrongtoken",
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it("constant-time: токен длиннее ожидаемого = 401 (не leak длину)", () => {
+    process.env.NIT_ADMIN_TOKEN = "0123456789abcdef";
+    const r = checkAdminToken(
+      req({ "x-nit-admin-token": "0123456789abcdef-extra-chars" }),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(401);
+  });
+
+  it("constant-time: одна разная буква в токене той же длины = mismatch", () => {
+    process.env.NIT_ADMIN_TOKEN = "0123456789abcdef";
+    const r = checkAdminToken(req({ "x-nit-admin-token": "0123456789abcdeF" }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(401);
+  });
+
+  it("пустой Bearer токен = 401", () => {
+    process.env.NIT_ADMIN_TOKEN = "0123456789abcdef";
+    const r = checkAdminToken(req({ authorization: "Bearer " }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(401);
+  });
 });

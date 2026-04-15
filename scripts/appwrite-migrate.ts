@@ -300,6 +300,31 @@ async function migrate(): Promise<void> {
   await ensureIndex("nit_generations", "userId_idx", "key", ["userId"]);
   console.log("");
 
+  // ── nit_guest_limits ──
+  // Persistent per-IP guest quota. Заменяет in-memory Map в auth.ts которая
+  // теряется при PM2 reload и не работает в multi-instance scaleup.
+  // Document ID = ipHash (sha256 IP) для быстрого getDocument без list+query.
+  console.log("Collection: nit_guest_limits");
+  await ensureCollection("nit_guest_limits", "NIT Guest IP Quotas");
+  await ensureAttribute("nit_guest_limits", "ipHash", {
+    kind: "string",
+    size: 64,
+    required: true,
+  });
+  await ensureAttribute("nit_guest_limits", "count", {
+    kind: "integer",
+    required: true,
+    min: 0,
+    default: 0,
+  });
+  await ensureAttribute("nit_guest_limits", "resetAt", {
+    kind: "datetime",
+    required: true,
+  });
+  await sleep(2000);
+  await ensureIndex("nit_guest_limits", "ipHash_unique", "unique", ["ipHash"]);
+  console.log("");
+
   console.log("✓ Migration complete");
 }
 

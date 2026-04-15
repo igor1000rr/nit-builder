@@ -10,6 +10,11 @@
  * - Graceful degradation: если LM Studio embedding не доступен — search
  *   возвращает []. Orchestrator работает без few-shot.
  *
+ * Contextual Retrieval (Tier 2, since v3):
+ * - Документ может иметь contextualText — текст с префиксом [niche | tone | mood].
+ *   Embedding считается от contextualText ?? text (graceful degradation).
+ *   На стороне поиска query тоже префиксируется через extractQueryContext.
+ *
  * Категории документов:
  * - plan_example     — (query → полный Plan) для few-shot планировщика
  * - hero_headline    — готовые hero-фразы по нишам
@@ -36,6 +41,12 @@ export type RagCategory =
 export type RagDocument = {
   id: string;
   text: string;
+  /**
+   * Опциональный текст с контекстным префиксом для embedding.
+   * Если задан — embedding считается от него; text используется только для отображения.
+   * Backward-compat: старые документы без поля работают как раньше (embed от text).
+   */
+  contextualText?: string;
   category: RagCategory;
   metadata: Record<string, unknown>;
   embedding?: number[];
@@ -47,6 +58,11 @@ export type SearchOptions = {
   category?: RagCategory;
   filter?: (doc: RagDocument) => boolean;
   signal?: AbortSignal;
+  /**
+   * Если задан — этот текст используется для embedding query вместо raw query.
+   * Используется fewShotBuilder для contextual retrieval.
+   */
+  queryEmbedText?: string;
 };
 
 export type SearchResult = {
@@ -124,7 +140,9 @@ async function ensureEmbedding(
   signal?: AbortSignal,
 ): Promise<number[] | null> {
   if (doc.embedding && doc.embedding.length > 0) return doc.embedding;
-  const vec = await embedText(doc.text, signal);
+  // Используем contextualText если есть (Tier 2 contextual retrieval), иначе raw text
+  const sourceText = doc.contextualText ?? doc.text;
+  const vec = await embedText(sourceText, signal);
   if (!vec) return null;
   doc.embedding = vec;
   return vec;
@@ -138,6 +156,7 @@ export async function hasDocument(id: string): Promise<boolean> {
 export async function addDocument(input: {
   id?: string;
   text: string;
+  contextualText?: string;
   category: RagCategory;
   metadata?: Record<string, unknown>;
   skipPersist?: boolean;
@@ -160,9 +179,15 @@ export async function addDocument(input: {
     createdAt: Date.now(),
   };
 
+  if (input.contextualText) {
+    doc.contextualText = input.contextualText.slice(0, 4200);
+  }
+
   if (!input.skipEmbed) {
     try {
-      const vec = await embedText(doc.text);
+      // Embed contextual версию если есть, иначе raw text
+      const embedSource = doc.contextualText ?? doc.text;
+      const vec = await embedText(embedSource);
       if (vec) doc.embedding = vec;
     } catch (err) {
       if ((err as Error).name === "AbortError") throw err;
@@ -193,9 +218,13 @@ export async function search(
   const k = opts.k ?? 3;
   if (documents.size === 0) return [];
 
+  // queryEmbedText (если задан вызывающим) используется для contextual retrieval —
+  // это query с тем же префиксом который применялся при индексации seed-ов.
+  const embedSource = opts.queryEmbedText ?? query;
+
   let qVec: number[] | null;
   try {
-    qVec = await embedText(query, opts.signal);
+    qVec = await embedText(embedSource, opts.signal);
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     return [];

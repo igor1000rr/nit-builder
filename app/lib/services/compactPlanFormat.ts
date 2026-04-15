@@ -13,6 +13,11 @@
  *
  * Несбалансированные/missing optional fields пропускаются. Длинные
  * description обрезаются по \n чтобы не ломать однострочный layout.
+ *
+ * Tier 4 (since v4): включает extended-поля (pricing_tiers/faq/hours_text/
+ * contact_*) когда они есть в плане. Без этого Planner не видит примеры
+ * extended-полей в few-shot блоке и редко их генерирует, даже если seeds
+ * с ними есть в RAG-корпусе.
  */
 
 import type { Plan } from "~/lib/utils/planSchema";
@@ -23,16 +28,25 @@ function flatten(s: string | undefined): string {
 }
 
 /**
- * Превращает Plan в компактную текстовую запись (5-12 строк).
+ * Превращает Plan в компактную текстовую запись (5-20 строк).
  * Формат:
  *   business: ... | audience: ... | tone: ... | mood: ... | template: ...
  *   sections: a,b,c
+ *   keywords: ...
  *   cta: Primary (microcopy)
  *   HERO: headline // subheadline
  *   BENEFITS:
  *     - Title → description
  *     - ...
  *   PROOF: social proof line
+ *   PRICING:
+ *     - TierName ★ (₽X / period): feature1 | feature2 | feature3
+ *     - ...
+ *   FAQ:
+ *     - Q: question? A: answer
+ *     - ...
+ *   HOURS: 9:00-22:00
+ *   CONTACT: +7..., email@x, address
  */
 export function formatPlanCompact(plan: Plan): string {
   const lines: string[] = [];
@@ -78,6 +92,41 @@ export function formatPlanCompact(plan: Plan): string {
   // PROOF
   if (plan.social_proof_line) {
     lines.push(`PROOF: ${flatten(plan.social_proof_line)}`);
+  }
+
+  // ─── Tier 4 extended fields ───
+
+  // PRICING
+  if (plan.pricing_tiers && plan.pricing_tiers.length > 0) {
+    lines.push("PRICING:");
+    for (const t of plan.pricing_tiers) {
+      const star = t.highlighted ? " ★" : "";
+      const period = t.period ? ` / ${flatten(t.period)}` : "";
+      const features = t.features.map(flatten).join(" | ");
+      lines.push(`  - ${flatten(t.name)}${star} (${flatten(t.price)}${period}): ${features}`);
+    }
+  }
+
+  // FAQ
+  if (plan.faq && plan.faq.length > 0) {
+    lines.push("FAQ:");
+    for (const f of plan.faq) {
+      lines.push(`  - Q: ${flatten(f.question)} A: ${flatten(f.answer)}`);
+    }
+  }
+
+  // HOURS
+  if (plan.hours_text) {
+    lines.push(`HOURS: ${flatten(plan.hours_text)}`);
+  }
+
+  // CONTACT (одна строка с непустыми полями)
+  const contactParts: string[] = [];
+  if (plan.contact_phone) contactParts.push(flatten(plan.contact_phone));
+  if (plan.contact_email) contactParts.push(flatten(plan.contact_email));
+  if (plan.contact_address) contactParts.push(flatten(plan.contact_address));
+  if (contactParts.length > 0) {
+    lines.push(`CONTACT: ${contactParts.join(", ")}`);
   }
 
   return lines.join("\n");

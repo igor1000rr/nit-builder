@@ -1,14 +1,17 @@
 /**
  * Load seeds в ragStore при первом обращении. Idempotent через sentinel-запись.
  *
- * Zero-cost если sentinel v1 уже есть: hasDocument() → return.
- * При первом запуске (или bump seedVersion → новый id sentinel):
+ * Zero-cost если sentinel текущей версии уже есть: hasDocument() → return.
+ * При первом запуске или bump SEED_VERSION:
  *   - добавляет plan_example seeds из planExamples.ts
  *   - добавляет hero_headline / benefits / social_proof / cta_microcopy
  *     из copywritingBank.ts
  *   - пишет sentinel
  *
- * Вызывается ленивыми точками: buildFewShotPlansBlock, admin endpoints.
+ * Старые seed:plan:* из предыдущей версии остаются в JSONL — id-дедупликация
+ * в addDocument гарантирует что повторно они не зальются. Новые добавятся.
+ *
+ * Вызывается ленивыми точками: buildFewShotPlansAdaptive, admin endpoints.
  * Если RAG_ENABLED=0 или embedding недоступен — ничего не делает.
  */
 
@@ -24,7 +27,7 @@ import {
 } from "~/lib/rag/seeds/copywritingBank";
 
 const SCOPE = "ragBootstrap";
-const SEED_VERSION = "v1";
+const SEED_VERSION = "v2";
 const SENTINEL_ID = `__seed_sentinel:${SEED_VERSION}`;
 
 let bootstrapPromise: Promise<void> | null = null;

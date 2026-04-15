@@ -18,7 +18,7 @@
 
 import { createRequestListener } from "@react-router/node";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, statSync, existsSync } from "node:fs";
 import { extname, join, normalize, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
@@ -27,11 +27,28 @@ import {
   handleControlConnection,
 } from "./app/lib/server/wsHandlers.server.ts";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// ─── Build presence check ─────────────────────────────────────────
+//
+// Без `npm run build` файла build/server/index.js нет, и динамический
+// импорт ниже падает с криптической ошибкой ERR_MODULE_NOT_FOUND.
+// Делаем понятный fail-fast, чтобы юзер сразу понял что делать.
+
+const BUILD_PATH = join(__dirname, "build", "server", "index.js");
+if (!existsSync(BUILD_PATH)) {
+  console.error("┌─────────────────────────────────────────────────┐");
+  console.error("│  ERROR: build/server/index.js not found         │");
+  console.error("├─────────────────────────────────────────────────┤");
+  console.error("│  Run: npm run build                             │");
+  console.error("│  Then: npm run start                            │");
+  console.error("└─────────────────────────────────────────────────┘");
+  process.exit(1);
+}
+
 // Dynamic import for build — avoids typecheck needing prior build
 // @ts-expect-error — build output exists at runtime after `npm run build`
 const build = await import("./build/server/index.js");
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";

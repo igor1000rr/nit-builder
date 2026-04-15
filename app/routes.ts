@@ -18,6 +18,14 @@ export default [
   // Sites CRUD (Phase B.6)
   route("api/sites", "routes/api.sites.ts"),
   route("api/sites/:id", "routes/api.sites.$id.ts"),
+  // Admin / RAG / Eval (раньше были orphaned — файлы есть, но в роутер не подключены)
+  route("api/admin/eval/run", "routes/api.admin.eval.run.ts"),
+  route("api/admin/feedback", "routes/api.admin.feedback.ts"),
+  route("api/admin/metrics", "routes/api.admin.metrics.ts"),
+  route("api/admin/rag/ingest", "routes/api.admin.rag.ingest.ts"),
+  route("api/admin/rag/ingest-feedback", "routes/api.admin.rag.ingest-feedback.ts"),
+  route("api/admin/rag/search", "routes/api.admin.rag.search.ts"),
+  route("api/admin/rag/stats", "routes/api.admin.rag.stats.ts"),
   // Static assets
   route("sitemap.xml", "routes/sitemap[.xml].ts"),
   route("robots.txt", "routes/robots[.txt].ts"),

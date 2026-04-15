@@ -2,9 +2,14 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("~/lib/services/ragStore", () => ({
   search: vi.fn(),
+  bm25Search: vi.fn(async () => []),
 }));
 vi.mock("~/lib/services/ragBootstrap", () => ({
   ensureSeeded: vi.fn(async () => {}),
+}));
+vi.mock("~/lib/services/ragReranker", () => ({
+  rerank: vi.fn(async () => null),
+  isRerankerDisabled: vi.fn(() => true),
 }));
 
 import { search } from "~/lib/services/ragStore";
@@ -16,6 +21,9 @@ beforeEach(() => {
   mockSearch.mockReset();
   delete process.env.NIT_FEWSHOT_MAX_K;
   delete process.env.NIT_FEWSHOT_K;
+  // Отключаем hybrid BM25 и reranker — тестируем только adaptive k поверх cosine
+  process.env.NIT_HYBRID_BM25_ENABLED = "0";
+  process.env.NIT_RERANKER_ENABLED = "0";
 });
 
 function buildMockResult(score: number, id: string = "d"): { doc: any; score: number } {

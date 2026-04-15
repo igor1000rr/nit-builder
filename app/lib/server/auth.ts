@@ -37,12 +37,31 @@ function parseCookies(header: string): Record<string, string> {
   return out;
 }
 
+/**
+ * Сверка Bearer-токена с derived secret. Используется и в CSRF-чеке (для безопасного
+ * пропуска заведомо валидного API-доступа), и в requireAuth.
+ */
+function isValidBearerToken(authHeader: string | null): boolean {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) return false;
+  const secret = getSecret();
+  if (!secret) return false;
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return false;
+  const expected = deriveToken(secret);
+  return safeCompare(token, secret) || safeCompare(token, expected);
+}
+
 // ─── CSRF ────────────────────────────────────────────
 export function checkCsrf(request: Request): Response | null {
   if (SAFE_METHODS.has(request.method)) return null;
 
-  const auth = request.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) return null;
+  // Bearer пропускает CSRF ТОЛЬКО если токен реально валидный.
+  // Раньше было `if (auth?.startsWith("Bearer ")) return null;` — это значило
+  // что любой POST с заголовком `Authorization: Bearer что-угодно` обходил
+  // CSRF-проверку, и если NIT_API_SECRET не задан, попадал в гостевой поток
+  // без origin/referer-валидации. Теперь Bearer без валидного токена
+  // продолжает CSRF-проверку как обычный cookie-запрос.
+  if (isValidBearerToken(request.headers.get("authorization"))) return null;
 
   const host = request.headers.get("host");
   if (!host) return null;
@@ -78,11 +97,7 @@ export function requireAuth(request: Request): Response | null {
   const expected = deriveToken(secret);
   if (safeCompare(cookies[COOKIE_NAME] ?? "", expected)) return null;
 
-  const auth = request.headers.get("authorization");
-  if (auth) {
-    const token = auth.replace(/^Bearer\s+/i, "").trim();
-    if (safeCompare(token, secret) || safeCompare(token, expected)) return null;
-  }
+  if (isValidBearerToken(request.headers.get("authorization"))) return null;
 
   return Response.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
 }
@@ -144,4 +159,9 @@ export function checkGuestLimit(request: Request): { allowed: boolean; remaining
 
   entry.count++;
   return { allowed: true, remaining: GUEST_DAILY - entry.count };
+}
+
+/** Только для тестов: сброс in-memory guest-count карты. */
+export function _resetGuestLimitState(): void {
+  guestCounts.clear();
 }

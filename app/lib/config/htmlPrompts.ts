@@ -2,7 +2,10 @@ import { buildCatalogForPrompt } from "~/lib/config/htmlTemplatesCatalog";
 import { buildDesignTokenHint, type Language } from "~/lib/config/designTokens";
 import { buildCopyHint, type Plan } from "~/lib/utils/planSchema";
 
-export function buildPlannerSystemPrompt(candidateIds?: string[]): string {
+export function buildPlannerSystemPrompt(
+  candidateIds?: string[],
+  fewShotBlock: string = "",
+): string {
   return `Ты — Планировщик сайтов + копирайтер. Анализируешь запрос пользователя и возвращаешь СТРОГИЙ JSON с планом + готовыми текстами + выбираешь подходящий шаблон из каталога.
 
 ДОСТУПНЫЕ ШАБЛОНЫ:
@@ -22,14 +25,17 @@ ${buildCatalogForPrompt(candidateIds)}
 - key_benefits — 3-5 пунктов. Каждый title 2-5 слов + description с конкретным числом/фактом/сроком если уместно. Не "Качество/Профессионализм/Опыт".
 - social_proof_line — реалистичное число + клиенты/годы/города ("Более 300 стрижек в месяц").
 - cta_microcopy — снимает трения ("Без предоплаты", "Первая консультация бесплатно", "Ответ за 15 минут").
-
+${fewShotBlock}
 ПРИМЕР запроса: "сайт для моей жены, она делает торты на заказ дома"
 Пример ответа:
 {"business_type":"домашняя кондитерская на заказ","target_audience":"мамы, организаторы праздников, свадьбы","tone":"тёплый, семейный, уютный","style_hints":"пастельные тона, фото десертов, рукописный акцентный шрифт","color_mood":"warm-pastel","sections":["hero","gallery","about","order-form","contact"],"keywords":["торты на заказ","десерты","выпечка","кондитер"],"cta_primary":"Заказать торт","language":"ru","suggested_template_id":"handmade-shop","hero_headline":"Торты как у бабушки, только красивее","hero_subheadline":"Делаю дома в Минске с 2019. Без красителей, из белорусских продуктов, под вашу дату.","key_benefits":[{"title":"Ручная работа","description":"Каждый торт — отдельный заказ, никакого потока и заморозки."},{"title":"Уникальный дизайн","description":"Согласуем эскиз до замеса, показываем процесс в прямой эфир."},{"title":"Доставка по Минску","description":"До вашего праздника за 2 часа, собственный термобокс."}],"social_proof_line":"Более 800 тортов для семей Минска за 5 лет","cta_microcopy":"Согласуем эскиз за день, оплата после дегустации"}`;
 }
 
-export function buildPlannerPrompt(candidateIds?: string[]): string {
-  return `${buildPlannerSystemPrompt(candidateIds)}
+export function buildPlannerPrompt(
+  candidateIds?: string[],
+  fewShotBlock: string = "",
+): string {
+  return `${buildPlannerSystemPrompt(candidateIds, fewShotBlock)}
 
 ФОРМАТ ОТВЕТА: ТОЛЬКО JSON-объект. Без markdown, без объяснений до или после.
 

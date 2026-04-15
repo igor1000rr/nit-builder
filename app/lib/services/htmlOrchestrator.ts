@@ -46,6 +46,7 @@ import {
   cleanRawForTail,
   extractTail,
 } from "~/lib/services/continuation";
+import { buildFewShotPlansBlock } from "~/lib/services/fewShotBuilder";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -78,6 +79,7 @@ export type PipelineEvent =
       prompt: number;
       completion: number;
     }
+  | { type: "rag_fewshot"; count: number }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
@@ -123,13 +125,13 @@ async function obtainPlan(
   sanitizedMessage: string,
   signal: AbortSignal,
   skipCache: boolean,
-): Promise<{ plan: Plan; cached: boolean }> {
+): Promise<{ plan: Plan; cached: boolean; fewShotCount: number }> {
   if (!skipCache) {
     const cached = getCachedPlan(sanitizedMessage);
     if (cached) {
       logger.info(SCOPE, `Plan cache hit for: ${sanitizedMessage.slice(0, 60)}`);
       metrics.planCacheHit();
-      return { plan: cached, cached: true };
+      return { plan: cached, cached: true, fewShotCount: 0 };
     }
     metrics.planCacheMiss();
   }
@@ -145,18 +147,30 @@ async function obtainPlan(
     if ((retrieverErr as Error).name === "AbortError") throw retrieverErr;
   }
 
+  let fewShotBlock = "";
+  let fewShotCount = 0;
+  try {
+    fewShotBlock = await buildFewShotPlansBlock(sanitizedMessage, signal);
+    if (fewShotBlock) {
+      // примерно: считаем "Пример N" в блоке
+      fewShotCount = (fewShotBlock.match(/Пример \d+/g) ?? []).length;
+    }
+  } catch (ragErr) {
+    if ((ragErr as Error).name === "AbortError") throw ragErr;
+  }
+
   try {
     const { object } = await generateObject({
       model,
       schema: PlanSchema,
-      system: buildPlannerSystemPrompt(candidateIds),
+      system: buildPlannerSystemPrompt(candidateIds, fewShotBlock),
       prompt: sanitizedMessage,
       temperature: 0.3,
       abortSignal: signal,
       maxOutputTokens: 2500,
     });
     setCachedPlan(sanitizedMessage, object);
-    return { plan: object, cached: false };
+    return { plan: object, cached: false, fewShotCount };
   } catch (structErr) {
     if ((structErr as Error).name === "AbortError") throw structErr;
     logger.warn(
@@ -168,7 +182,7 @@ async function obtainPlan(
   try {
     const { text: planRaw } = await generateText({
       model,
-      system: buildPlannerPrompt(candidateIds),
+      system: buildPlannerPrompt(candidateIds, fewShotBlock),
       prompt: sanitizedMessage,
       maxOutputTokens: 2500,
       temperature: 0.3,
@@ -185,7 +199,7 @@ async function obtainPlan(
     const parsed = rawJson !== null ? PlanSchema.safeParse(rawJson) : null;
     if (parsed?.success) {
       setCachedPlan(sanitizedMessage, parsed.data);
-      return { plan: parsed.data, cached: false };
+      return { plan: parsed.data, cached: false, fewShotCount };
     }
     logger.warn(SCOPE, "Plan schema validation failed, using fallback plan");
   } catch (genErr) {
@@ -205,13 +219,9 @@ async function obtainPlan(
     language: "ru",
     suggested_template_id: "blank-landing",
   };
-  return { plan: synthetic, cached: false };
+  return { plan: synthetic, cached: false, fewShotCount };
 }
 
-/**
- * Безопасно извлечь usage из результата streamText (у разных провайдеров
- * могут быть разные ключи, иногда undefined).
- */
 async function readUsage(
   result: { usage: Promise<unknown> | unknown },
 ): Promise<{ prompt: number; completion: number }> {
@@ -264,7 +274,6 @@ export async function* executeHtmlSimple(
   const startMs = Date.now();
   metrics.generationStarted("create", provider.id);
 
-  // Сброс предыдущего truncation при новом create-запуске
   clearTruncation(memory.sessionId);
 
   let currentPlan: Plan | undefined;
@@ -283,6 +292,9 @@ export async function* executeHtmlSimple(
     currentPlan = obtained.plan;
     planCachedFlag = obtained.cached;
     memory.planJson = obtained.plan;
+    if (obtained.fewShotCount > 0) {
+      yield { type: "rag_fewshot", count: obtained.fewShotCount };
+    }
     yield { type: "plan_ready", plan: obtained.plan, cached: obtained.cached };
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
@@ -309,7 +321,6 @@ export async function* executeHtmlSimple(
   yield { type: "template_selected", templateId: template.id, templateName: template.name };
   metrics.templateSelected(template.id);
 
-  // ─── Template pruning: вырезаем секции которых нет в plan.sections ───
   const pruneResult = pruneTemplateForPlan(rawTemplateHtml, currentPlan.sections);
   const templateHtml = pruneResult.html;
   if (pruneResult.removed.length > 0) {
@@ -396,7 +407,6 @@ export async function* executeHtmlSimple(
     const totalMs = Date.now() - startMs;
 
     if (finishReason === "length") {
-      // Truncated — сохраняем raw для continuation, отдаём preview
       metrics.generationTruncated("create");
       const rawForTail = cleanRawForTail(rawHtml);
       setTruncation(memory.sessionId, {
@@ -436,7 +446,6 @@ export async function* executeHtmlSimple(
       return;
     }
 
-    // Нормальное завершение
     const fullHtml = stripCodeFences(rawHtml);
     memory.currentHtml = fullHtml;
     memory.updatedAt = Date.now();
@@ -560,7 +569,6 @@ export async function* executeHtmlContinue(
     const totalMs = Date.now() - startMs;
 
     if (finishReason === "length") {
-      // Всё ещё не влезло — обновляем truncation, предлагаем ещё continue
       metrics.generationTruncated("continue");
       setTruncation(memory.sessionId, {
         ...t,
@@ -594,7 +602,6 @@ export async function* executeHtmlContinue(
       return;
     }
 
-    // Финальное завершение — чистим и отдаём
     const finalHtml = stripCodeFences(joined);
     memory.currentHtml = finalHtml;
     memory.updatedAt = Date.now();
@@ -641,7 +648,6 @@ export async function* executeHtmlPolish(
     return;
   }
 
-  // Polish сбрасывает ожидающее truncation (юзер решил не продолжать)
   clearTruncation(memory.sessionId);
 
   const model = getModel(provider);

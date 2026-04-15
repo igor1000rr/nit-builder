@@ -27,7 +27,9 @@
     "tunnel:dev": "npm run dev --workspace tunnel",
     "tunnel:build": "npm run build --workspace tunnel",
     "shared:build": "npm run build --workspace shared",
-    "migrate:appwrite": "tsx scripts/appwrite-migrate.ts"
+    "migrate:appwrite": "tsx scripts/appwrite-migrate.ts",
+    "eval": "tsx scripts/runEval.ts",
+    "eval:nightly": "tsx scripts/runEval.ts --label=nightly --compare-last --fail-on-regression"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.102",

@@ -6,9 +6,10 @@
  *   projectId: 69ab07130011752aae12
  *
  * Collections (in database `nit_builder`):
- * - nit_users       → extends Appwrite users with tunnelTokenHash, preferences
- * - nit_sites       → generated sites (replaces localStorage history)
- * - nit_generations → audit log of each generation attempt
+ * - nit_users        → extends Appwrite users with tunnelTokenHash, preferences
+ * - nit_sites        → generated sites (replaces localStorage history)
+ * - nit_generations  → audit log of each generation attempt
+ * - nit_guest_limits → persistent per-IP guest quotas (replaces in-memory Map)
  *
  * Database + collections must be created manually via:
  *   scripts/appwrite-migrate.ts
@@ -29,6 +30,7 @@ import {
   Query,
   type Models,
 } from "node-appwrite";
+import { createHash } from "node:crypto";
 
 // ─── Config ──────────────────────────────────────────────────────
 
@@ -40,6 +42,7 @@ export const APPWRITE_CONFIG = {
     users: "nit_users",
     sites: "nit_sites",
     generations: "nit_generations",
+    guestLimits: "nit_guest_limits",
   },
 } as const;
 
@@ -126,6 +129,12 @@ export type NitGeneration = Models.Document & {
   success: boolean;
   errorReason?: string;
   templateId?: string;
+};
+
+export type NitGuestLimit = Models.Document & {
+  ipHash: string;
+  count: number;
+  resetAt: string;
 };
 
 // ─── Session operations ─────────────────────────────────────────
@@ -437,4 +446,100 @@ export async function logGeneration(
   } catch {
     // Silently drop metric logging errors — don't break user flow
   }
+}
+
+// ─── Guest IP quota (persistent) ─────────────────────────────────
+
+/**
+ * Хешируем IP перед использованием как docId — чтобы не светить сырые IP
+ * в Appwrite logs/exports (privacy + GDPR-friendly). sha256 → 64 hex chars.
+ */
+function hashIp(ip: string): string {
+  return createHash("sha256").update(`nit-guest:${ip}`).digest("hex");
+}
+
+export type GuestLimitDecision = {
+  allowed: boolean;
+  remaining: number;
+  /** Когда счётчик сбросится (для UI). */
+  resetAt: number;
+};
+
+/**
+ * Атомарная проверка-и-инкремент guest квоты по IP. Persistent: переживает
+ * рестарт сервера и работает в multi-instance scaleup.
+ *
+ * Race condition note: Appwrite не даёт настоящую атомарную операцию
+ * read-modify-write. Между getDocument и updateDocument теоретически
+ * возможен +1 race. Для guest-rate-limit это допустимо: цена ошибки —
+ * 1 лишний запрос на бесплатном тарифе.
+ *
+ * Бросает только при сетевых ошибках Appwrite (caller должен fall back на
+ * in-memory или fail-open в зависимости от threat model).
+ */
+export async function consumeGuestLimit(
+  ip: string,
+  dailyMax: number,
+  windowMs: number,
+): Promise<GuestLimitDecision> {
+  const ipHash = hashIp(ip);
+  const docId = ipHash.slice(0, 36); // Appwrite doc ID limit
+  const db = getAdminDatabases();
+  const now = Date.now();
+  const newResetAt = new Date(now + windowMs).toISOString();
+
+  let existing: NitGuestLimit | null = null;
+  try {
+    existing = await db.getDocument<NitGuestLimit>(
+      APPWRITE_CONFIG.databaseId,
+      APPWRITE_CONFIG.collections.guestLimits,
+      docId,
+    );
+  } catch {
+    existing = null; // doesn't exist — first request from this IP
+  }
+
+  // Первый запрос ИЛИ счётчик протух → создаём/перезаписываем
+  if (!existing || new Date(existing.resetAt).getTime() < now) {
+    if (existing) {
+      await db.updateDocument(
+        APPWRITE_CONFIG.databaseId,
+        APPWRITE_CONFIG.collections.guestLimits,
+        docId,
+        { count: 1, resetAt: newResetAt },
+      );
+    } else {
+      await db.createDocument<NitGuestLimit>(
+        APPWRITE_CONFIG.databaseId,
+        APPWRITE_CONFIG.collections.guestLimits,
+        docId,
+        { ipHash, count: 1, resetAt: newResetAt },
+      );
+    }
+    return {
+      allowed: true,
+      remaining: dailyMax - 1,
+      resetAt: now + windowMs,
+    };
+  }
+
+  if (existing.count >= dailyMax) {
+    return {
+      allowed: false,
+      remaining: 0,
+      resetAt: new Date(existing.resetAt).getTime(),
+    };
+  }
+
+  await db.updateDocument(
+    APPWRITE_CONFIG.databaseId,
+    APPWRITE_CONFIG.collections.guestLimits,
+    docId,
+    { count: existing.count + 1 },
+  );
+  return {
+    allowed: true,
+    remaining: dailyMax - existing.count - 1,
+    resetAt: new Date(existing.resetAt).getTime(),
+  };
 }

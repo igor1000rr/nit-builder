@@ -8,6 +8,11 @@
  * в [data-nit-section="X"] (атрибуты проставлены enrichSectionAnchors).
  *
  * Эвристика работает 0ms и покрывает ~80% типовых запросов.
+ *
+ * ВАЖНО: regex используют unicode-aware word boundaries (флаг `u` + \p{L}).
+ * Стандартный `\b` в JS работает только с ASCII — для кириллицы он молча
+ * не срабатывает, что в прошлом приводило к тому что весь классификатор
+ * возвращал structuralHits=0, styleHits=0 для русских запросов.
  */
 
 export type PolishIntent = "css_patch" | "full_rewrite";
@@ -24,91 +29,105 @@ export type ClassificationResult = {
   targetSections: string[];
 };
 
+// ─── Unicode-aware regex helpers ─────────────────────────────────
+// W — unicode word char (буква любого алфавита, цифра, _).
+// b — unicode-aware замена `\b`: место, где с одной стороны не word char.
+const W = "[\\p{L}\\d_]";
+const NB_LEFT = `(?<!${W})`;
+const NB_RIGHT = `(?!${W})`;
+
+/** Создать unicode-aware regex с word boundaries по обеим сторонам. */
+function uw(inner: string): RegExp {
+  return new RegExp(`${NB_LEFT}(?:${inner})${NB_RIGHT}`, "iu");
+}
+
+// ─── Стилевые паттерны ───────────────────────────────────────────
 const STYLE_PATTERNS: RegExp[] = [
-  /\bцвет\w*/i,
-  /\bколор\w*/i,
-  /\bcolor\b/i,
-  /\bпалитр\w*/i,
-  /\b(син|красн|зел[её]н|ч[её]рн|бел|с[её]р|ж[её]лт|фиолетов|оранжев|розов|голуб|бордов|бирюзов|пурпур|малинов|корич)\w*/i,
-  /\b(blue|red|green|black|white|gray|grey|yellow|purple|orange|pink|cyan|magenta|brown)\b/i,
-  /\bт[её]мн\w*/i,
-  /\bсветл\w*/i,
-  /\bdark\b/i,
-  /\blight\b/i,
-  /\bяр(к|ч)\w*/i,
-  /\bпригас\w*/i,
-  /\bфон\w*/i,
-  /\bbackground\b/i,
-  /\bbg-/i,
-  /\bкрупн\w*/i,
-  /\bмельч\w*/i,
-  /\bпомельче/i,
-  /\bпокрупнее/i,
-  /\bменьш\w*/i,
-  /\bбольш\w*/i,
-  /\bшире\b/i,
-  /\bуже\b/i,
-  /\bотступ\w*/i,
-  /\bpadding\b/i,
-  /\bmargin\b/i,
-  /\bgap\b/i,
-  /\bинтервал\w*/i,
-  /\bвысот\w*/i,
-  /\bширин\w*/i,
-  /\bшрифт\w*/i,
-  /\bfont\b/i,
-  /\bжирн\w*/i,
-  /\bbold\b/i,
-  /\bкурсив\w*/i,
-  /\bitalic\b/i,
-  /\bподч[её]ркн\w*/i,
-  /\bскругл\w*/i,
-  /\bround\w*/i,
-  /\bтень\w*/i,
-  /\bshadow\b/i,
-  /\bпрозрачн\w*/i,
-  /\bopacity\b/i,
-  /\bblur\b/i,
-  /\bразмыт\w*/i,
-  /\bградиент\w*/i,
-  /\bgradient\b/i,
-  /\bдизайн\w*/i,
-  /\bтем(а|у|ы)\b/i,
-  /\bстил(ь|ем|я)\w*/i,
-  /\bвид\b/i,
-  /\bкнопк\w*/i,
+  uw("цвет\\p{L}*"),
+  uw("колор\\p{L}*"),
+  uw("color"),
+  uw("палитр\\p{L}*"),
+  uw("(син|красн|зел[её]н|ч[её]рн|бел|с[её]р|ж[её]лт|фиолетов|оранжев|розов|голуб|бордов|бирюзов|пурпур|малинов|корич)\\p{L}*"),
+  uw("(blue|red|green|black|white|gray|grey|yellow|purple|orange|pink|cyan|magenta|brown)"),
+  uw("т[её]мн\\p{L}*"),
+  uw("светл\\p{L}*"),
+  uw("dark"),
+  uw("light"),
+  uw("яр(к|ч)\\p{L}*"),
+  uw("пригас\\p{L}*"),
+  uw("фон\\p{L}*"),
+  uw("background"),
+  /\bbg-/i, // ASCII-only — Tailwind class
+  uw("крупн\\p{L}*"),
+  uw("мельч\\p{L}*"),
+  uw("помельче"),
+  uw("покрупнее"),
+  uw("меньш\\p{L}*"),
+  uw("больш\\p{L}*"),
+  uw("шире"),
+  uw("уже"),
+  uw("отступ\\p{L}*"),
+  uw("padding"),
+  uw("margin"),
+  uw("gap"),
+  uw("интервал\\p{L}*"),
+  uw("высот\\p{L}*"),
+  uw("ширин\\p{L}*"),
+  uw("шрифт\\p{L}*"),
+  uw("font"),
+  uw("жирн\\p{L}*"),
+  uw("bold"),
+  uw("курсив\\p{L}*"),
+  uw("italic"),
+  uw("подч[её]ркн\\p{L}*"),
+  uw("скругл\\p{L}*"),
+  uw("round\\p{L}*"),
+  uw("тень\\p{L}*"),
+  uw("shadow"),
+  uw("прозрачн\\p{L}*"),
+  uw("opacity"),
+  uw("blur"),
+  uw("размыт\\p{L}*"),
+  uw("градиент\\p{L}*"),
+  uw("gradient"),
+  uw("дизайн\\p{L}*"),
+  uw("тем(а|у|ы)"),
+  uw("стил(ь|ем|я)\\p{L}*"),
+  uw("вид"),
+  uw("кнопк\\p{L}*"),
 ];
 
+// ─── Структурные паттерны (требуют full_rewrite) ─────────────────
 const STRUCTURAL_PATTERNS: RegExp[] = [
-  /\bдобав(ь|и|ить|ление|им)/i,
-  /\bвстав(ь|ить|ка|им)/i,
-  /\bсоздай\w*/i,
-  /\bубер(и|ите|ём)/i,
-  /\bудал(и|ить|ите|яем|им)/i,
-  /\bвыкин(ь|и|уть)/i,
-  /\bremove\b/i,
-  /\badd\b/i,
-  /\bсекци\w*/i,
-  /\bблок\w*/i,
-  /\bsection\b/i,
-  /\bbanner\b/i,
-  /\bбаннер\w*/i,
-  /\bперепиш\w*/i,
-  /\bпереименуй/i,
-  /\bзамени\s+(текст|заголов|слов)/i,
-  /\bизмени\s+(текст|заголов|слов)/i,
-  /\bновый\s+(текст|заголов)/i,
-  /\bнапиши\b/i,
-  /\bпридумай\w*/i,
-  /\bпредложи\w*/i,
-  /\bперенес(и|ти)/i,
-  /\bперестав(ь|ить)/i,
-  /\bпоменяй\s+места?/i,
-  /\bswap\b/i,
-  /\bmove\b/i,
-  /\bсодерж\w*/i,
-  /\bконтент\w*/i,
-  /\bпрайс\w*/i,
+  uw("добав(ь|и|ить|ление|им)"),
+  uw("встав(ь|ить|ка|им)"),
+  uw("создай\\p{L}*"),
+  uw("убер(и|ите|ём)"),
+  uw("удал(и|ить|ите|яем|им)"),
+  uw("выкин(ь|и|уть)"),
+  uw("remove"),
+  uw("add"),
+  uw("секци\\p{L}*"),
+  uw("блок\\p{L}*"),
+  uw("section"),
+  uw("banner"),
+  uw("баннер\\p{L}*"),
+  uw("перепиш\\p{L}*"),
+  uw("переименуй"),
+  uw("замени\\s+(текст|заголов|слов)"),
+  uw("измени\\s+(текст|заголов|слов)"),
+  uw("новый\\s+(текст|заголов)"),
+  uw("напиши"),
+  uw("придумай\\p{L}*"),
+  uw("предложи\\p{L}*"),
+  uw("перенес(и|ти)"),
+  uw("перестав(ь|ить)"),
+  uw("поменяй\\s+места?"),
+  uw("swap"),
+  uw("move"),
+  uw("содерж\\p{L}*"),
+  uw("контент\\p{L}*"),
+  uw("прайс\\p{L}*"),
 ];
 
 /**
@@ -116,86 +135,84 @@ const STRUCTURAL_PATTERNS: RegExp[] = [
  *
  * Порядок важен — сначала более специфичные паттерны ("фотографии в галерее"),
  * потом более общие ("галерея").
- *
- * Используются только канонические id из sections в Plan schema (hero, menu, services, etc).
  */
 const SECTION_ALIASES: Array<[RegExp, string]> = [
-  // Hero / главный экран
-  [/\bгеро(й|я|е|ем)\b/i, "hero"],
-  [/\bглавн(ый|ого|ом)\s+(экран\w*|блок\w*)/i, "hero"],
-  [/\bшап(ка|ку|ке|очк)/i, "hero"],
-  [/\bпервый\s+экран/i, "hero"],
-  [/\bверхний\s+блок/i, "hero"],
-  [/\bhero\b/i, "hero"],
-  [/\bheader\b/i, "hero"],
+  // Hero / главный экран. "героe" с латинской 'e' — частая опечатка, поэтому [еe].
+  [uw("геро(й|я|[еe]|ем)"), "hero"],
+  [uw("главн(ый|ого|ом|ого)\\s+(экран\\p{L}*|блок\\p{L}*)"), "hero"],
+  [uw("шап(ка|ку|ке|очк\\p{L}*)"), "hero"],
+  [uw("первый\\s+экран"), "hero"],
+  [uw("верхний\\s+блок"), "hero"],
+  [uw("hero"), "hero"],
+  [uw("header"), "hero"],
 
   // Menu
-  [/\bменю\b/i, "menu"],
-  [/\bmenu\b/i, "menu"],
+  [uw("меню"), "menu"],
+  [uw("menu"), "menu"],
 
-  // Pricing (раньше services — у "цен" специфичнее)
-  [/\bпрайс\w*/i, "pricing"],
-  [/\bцен(ы|ах|е|ник|ами|ником|у)\b/i, "pricing"],
-  [/\bтариф\w*/i, "pricing"],
-  [/\bpricing\b/i, "pricing"],
+  // Pricing — у "цен" специфичнее
+  [uw("прайс\\p{L}*"), "pricing"],
+  [uw("цен(ы|ах|е|ник\\p{L}*|ами|у)"), "pricing"],
+  [uw("тариф\\p{L}*"), "pricing"],
+  [uw("pricing"), "pricing"],
 
   // Gallery
-  [/\bгалере\w*/i, "gallery"],
-  [/\bработы\b/i, "gallery"],
-  [/\bgallery\b/i, "gallery"],
+  [uw("галере\\p{L}*"), "gallery"],
+  [uw("работы"), "gallery"],
+  [uw("gallery"), "gallery"],
 
   // Contact
-  [/\bконтакт\w*/i, "contact"],
-  [/\bcontact\b/i, "contact"],
+  [uw("контакт\\p{L}*"), "contact"],
+  [uw("contact"), "contact"],
 
-  // Footer (отдельная секция от contact — частая практика в шаблонах)
-  [/\bфутер\w*/i, "footer"],
-  [/\bподвал\w*/i, "footer"],
-  [/\bнижний\s+блок/i, "footer"],
-  [/\bfooter\b/i, "footer"],
+  // Footer (отдельная секция от contact)
+  [uw("футер\\p{L}*"), "footer"],
+  [uw("подвал\\p{L}*"), "footer"],
+  [uw("нижний\\s+блок"), "footer"],
+  [uw("footer"), "footer"],
 
   // Booking
-  [/\bзапис(и|ь|ю)/i, "booking"],
-  [/\bброн(ь|и|ировани)/i, "booking"],
-  [/\bbooking\b/i, "booking"],
+  [uw("запис(и|ь|ю)"), "booking"],
+  [uw("брон(ь|и|ировани\\p{L}*)"), "booking"],
+  [uw("booking"), "booking"],
 
   // Testimonials
-  [/\bотзыв\w*/i, "testimonials"],
-  [/\btestimonials\b/i, "testimonials"],
+  [uw("отзыв\\p{L}*"), "testimonials"],
+  [uw("testimonials"), "testimonials"],
 
   // Features
-  [/\bфич\w*/i, "features"],
-  [/\bвозможност\w*/i, "features"],
-  [/\bfeatures\b/i, "features"],
+  [uw("фич\\p{L}*"), "features"],
+  [uw("возможност\\p{L}*"), "features"],
+  [uw("features"), "features"],
 
   // Services
-  [/\bуслуг\w*/i, "services"],
-  [/\bservices\b/i, "services"],
+  [uw("услуг\\p{L}*"), "services"],
+  [uw("services"), "services"],
 
   // About
-  [/\bо\s+нас\b/i, "about"],
-  [/\bо\s+компани/i, "about"],
-  [/\bо\s+себ\w*/i, "about"],
-  [/\bо\s+проект/i, "about"],
-  [/\babout\b/i, "about"],
+  [uw("о\\s+нас"), "about"],
+  [uw("о\\s+компани\\p{L}*"), "about"],
+  [uw("о\\s+себ\\p{L}*"), "about"],
+  [uw("о\\s+проект\\p{L}*"), "about"],
+  [uw("about"), "about"],
 
   // Team / masters / doctors
-  [/\bкоманд\w*/i, "team"],
-  [/\bмастер\w*/i, "masters"],
-  [/\bврач\w*/i, "doctors"],
-  [/\bteam\b/i, "team"],
+  [uw("коман(д|ды|де|ду)\\p{L}*"), "team"],
+  [uw("мастер\\p{L}*"), "masters"],
+  [uw("врач\\p{L}*"), "doctors"],
+  [uw("team"), "team"],
 
   // Schedule
-  [/\bрасписан\w*/i, "schedule"],
-  [/\bschedule\b/i, "schedule"],
+  [uw("расписан\\p{L}*"), "schedule"],
+  [uw("schedule"), "schedule"],
 
   // CTA
-  [/\bкнопка\s+(действия|призыва)/i, "cta"],
-  [/\bcta\b/i, "cta"],
+  [uw("кнопка\\s+(действия|призыва)"), "cta"],
+  [uw("cta"), "cta"],
 
   // Order form
-  [/\bформ(а|у)\s+заказ/i, "order-form"],
-  [/\bзаказать\s+(торт|товар)/i, "order-form"],
+  [uw("форм(а|у)\\s+заказ\\p{L}*"), "order-form"],
+  [uw("заказать\\s+(торт|товар)"), "order-form"],
 ];
 
 function countMatches(text: string, patterns: RegExp[]): number {

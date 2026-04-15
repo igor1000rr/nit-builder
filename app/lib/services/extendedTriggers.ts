@@ -8,9 +8,9 @@
  * Без триггеров — no-op, baseline retrieval не затрагивается.
  *
  * Триггер-словарь синхронизирован с PlannerSystemPrompt (commit 6ecf27d):
- * там Planner-у сказано \"ВСЕГДА заполни pricing если в запросе есть
- * trigger-слово X\", здесь мы говорим retrieval-у \"выбирай примеры
- * с заполненным pricing когда видишь trigger-слово X\". Без согласованной
+ * там Planner-у сказано "ВСЕГДА заполни pricing если в запросе есть
+ * trigger-слово X", здесь мы говорим retrieval-у "выбирай примеры
+ * с заполненным pricing когда видишь trigger-слово X". Без согласованной
  * пары Planner копирует структуру из few-shot без extended-полей и
  * adoption Tier 4 застревает.
  */
@@ -29,7 +29,7 @@ export type ExtendedTriggers = {
 
 // ─── Триггер-словари ─────────────────────────────────────────────────────────
 //
-// substring match по lowercase + regex для шаблонов с числами.
+// substring match по lowercase + regex для шаблонов с числами и склонениями.
 // Подбор слов покрывает формулировки в queriesExtended.ts и в htmlPrompts.ts.
 
 const PRICING_SUBSTRS = [
@@ -52,13 +52,14 @@ const FAQ_SUBSTRS = [
 ];
 
 const HOURS_SUBSTRS = [
-  "часы работ",
-  "режим работ",
-  "график работ",
   "круглосуточн",
   "24/7",
 ];
-const HOURS_REGEX = /работаем\s+с\s+\d/i;
+// Покрывает все падежи: "режим работы", "режимом работы", "график работы",
+// "графика работы", "часы работы", "часов работы" и т.д.
+// \p{L}* + флаг u нужен потому что обычный \w* в JS не понимает кириллицу.
+const HOURS_REGEX = /(?:реж\p{L}*|граф\p{L}*|час\p{L}*)\s+работ\p{L}*/iu;
+const HOURS_WORK_FROM_REGEX = /работаем\s+с\s+\d/i;
 
 const CONTACT_SUBSTRS = [
   "телефон",
@@ -78,7 +79,9 @@ export function detectExtendedTriggers(query: string): ExtendedTriggers {
       PRICING_SUBSTRS.some((s) => lower.includes(s)) || PRICING_REGEX.test(query),
     faq: FAQ_SUBSTRS.some((s) => lower.includes(s)),
     hours:
-      HOURS_SUBSTRS.some((s) => lower.includes(s)) || HOURS_REGEX.test(query),
+      HOURS_SUBSTRS.some((s) => lower.includes(s)) ||
+      HOURS_REGEX.test(query) ||
+      HOURS_WORK_FROM_REGEX.test(query),
     contact: CONTACT_SUBSTRS.some((s) => lower.includes(s)),
   };
 }

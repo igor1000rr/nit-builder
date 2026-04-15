@@ -2,6 +2,7 @@ import { logger } from "~/lib/utils/logger";
 import { getPreferredProvider, getModel } from "~/lib/llm/client";
 import { runPlannerForEval } from "~/lib/services/htmlOrchestrator";
 import { EVAL_QUERIES } from "./queries";
+import { EVAL_QUERIES_EXTENDED } from "./queriesExtended";
 import { evaluatePlan } from "./metrics";
 import type {
   EvalCaseResult,
@@ -19,13 +20,15 @@ function generateRunId(): string {
 }
 
 /**
- * Категоризация запроса по префиксу id (согласовано с организацией queries.ts).
- * Неизвестные префиксы — "unknown" (не влияет на основные категории).
+ * Категоризация запроса по префиксу id.
+ *   easy-/med-/hard-  — основные корпуса
+ *   ext-              — Tier 4 extended fields adoption checks (queriesExtended.ts)
  */
 function categorizeDifficulty(id: string): EvalDifficulty {
   if (id.startsWith("easy-")) return "easy";
   if (id.startsWith("med-")) return "medium";
   if (id.startsWith("hard-")) return "hard";
+  if (id.startsWith("ext-")) return "ext";
   return "unknown";
 }
 
@@ -162,10 +165,6 @@ function aggregate(cases: EvalCaseResult[]): EvalRunSummary {
   };
 }
 
-/**
- * Разбить cases по категориям сложности и агрегировать отдельно.
- * Пустые категории опускаются.
- */
 function aggregateByDifficulty(
   cases: EvalCaseResult[],
 ): Partial<Record<EvalDifficulty, EvalRunSummary>> {
@@ -173,6 +172,7 @@ function aggregateByDifficulty(
     easy: [],
     medium: [],
     hard: [],
+    ext: [],
     unknown: [],
   };
   for (const c of cases) {
@@ -180,7 +180,7 @@ function aggregateByDifficulty(
     groups[cat].push(c);
   }
   const result: Partial<Record<EvalDifficulty, EvalRunSummary>> = {};
-  for (const cat of ["easy", "medium", "hard", "unknown"] as EvalDifficulty[]) {
+  for (const cat of ["easy", "medium", "hard", "ext", "unknown"] as EvalDifficulty[]) {
     if (groups[cat].length > 0) {
       result[cat] = aggregate(groups[cat]);
     }
@@ -194,9 +194,10 @@ export async function runEvalSuite(opts: EvalRunOptions = {}): Promise<EvalRunRe
 
   const modelHandle = getModel(provider);
   const modelName = provider.defaultModel;
+  const allQueries: EvalQuery[] = [...EVAL_QUERIES, ...EVAL_QUERIES_EXTENDED];
   const queries = opts.maxQueries
-    ? EVAL_QUERIES.slice(0, opts.maxQueries)
-    : EVAL_QUERIES;
+    ? allQueries.slice(0, opts.maxQueries)
+    : allQueries;
 
   const originalRagEnabled = process.env.NIT_RAG_ENABLED;
   const originalReasoningEnabled = process.env.NIT_PLAN_REASONING_ENABLED;
@@ -207,7 +208,7 @@ export async function runEvalSuite(opts: EvalRunOptions = {}): Promise<EvalRunRe
   const startedAt = Date.now();
   logger.info(
     SCOPE,
-    `Run ${runId} started: queries=${queries.length}, disableRag=${!!opts.disableRag}, disableReasoning=${!!opts.disableReasoning}`,
+    `Run ${runId} started: queries=${queries.length} (${EVAL_QUERIES.length} base + ${EVAL_QUERIES_EXTENDED.length} ext), disableRag=${!!opts.disableRag}, disableReasoning=${!!opts.disableReasoning}`,
   );
 
   const cases: EvalCaseResult[] = [];

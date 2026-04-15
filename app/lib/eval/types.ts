@@ -1,13 +1,5 @@
 /**
  * Типы для eval-pipeline.
- *
- * Главная цель — иметь воспроизводимый baseline качества Planner для
- * сравнения А/Б экспериментов (с RAG vs без, с reasoning vs без, новый seed
- * корпус vs старый, и т.д.).
- *
- * Метрики автоматические, без LLM-judge: проверяют синтаксис плана
- * (PlanSchema), длины полей, наличие конкретики (числа, факты), отсутствие
- * шаблонных фраз, попадание в нишу.
  */
 
 import type { Plan } from "~/lib/utils/planSchema";
@@ -19,6 +11,20 @@ export type EvalQuery = {
   expectedTemplateId?: string;
   mustHaveSections?: string[];
   expectedKeywordsAny?: string[];
+
+  // ─── Tier 4: ожидания extended-полей ───
+  // Если указано true, добавляется соответствующий check has_X_when_expected.
+  // Используется для измерения adoption Planner-ом расширенных полей.
+  // Когда query явно намекает на прайс/FAQ/часы/контакты — план должен их выдавать.
+
+  /** Запрос намекает на тарифы/прайс — план должен содержать pricing_tiers (>=2). */
+  expectsPricing?: boolean;
+  /** Запрос намекает на FAQ/частые вопросы — план должен содержать faq (>=3). */
+  expectsFaq?: boolean;
+  /** Бизнес явно оффлайновый с режимом работы — план должен содержать hours_text. */
+  expectsHours?: boolean;
+  /** Бизнес явно оффлайновый с физическим адресом — план должен содержать contact_phone. */
+  expectsContactPhone?: boolean;
 };
 
 export type MetricCheck = {
@@ -39,7 +45,7 @@ export type EvalCaseResult = {
   passed: boolean;
 };
 
-export type EvalDifficulty = "easy" | "medium" | "hard" | "unknown";
+export type EvalDifficulty = "easy" | "medium" | "hard" | "ext" | "unknown";
 
 export type EvalRunSummary = {
   total: number;
@@ -52,11 +58,7 @@ export type EvalRunSummary = {
   templateMatchRate: number;
   perCheckPassRate: Record<string, number>;
   /**
-   * Разбивка по категории сложности (префикс id запроса: easy-/med-/hard-).
-   * С расширением корпуса до 100 queries (37+37+26) отдельный мониторинг качества
-   * на hard-категории важен — иначе регрессии в graceful degradation растворяются
-   * в общем шуме.
-   * Опциональное поле — backward-compat для консьюмеров старой версии типа.
+   * Разбивка по категории сложности (префикс id запроса: easy-/med-/hard-/ext-).
    */
   byDifficulty?: Partial<Record<EvalDifficulty, EvalRunSummary>>;
 };

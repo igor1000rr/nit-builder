@@ -5,6 +5,7 @@ import { EVAL_QUERIES } from "./queries";
 import { evaluatePlan } from "./metrics";
 import type {
   EvalCaseResult,
+  EvalDifficulty,
   EvalQuery,
   EvalRunOptions,
   EvalRunReport,
@@ -15,6 +16,17 @@ const SCOPE = "evalRunner";
 
 function generateRunId(): string {
   return `eval_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Категоризация запроса по префиксу id (согласовано с организацией queries.ts).
+ * Неизвестные префиксы — "unknown" (не влияет на основные категории).
+ */
+function categorizeDifficulty(id: string): EvalDifficulty {
+  if (id.startsWith("easy-")) return "easy";
+  if (id.startsWith("med-")) return "medium";
+  if (id.startsWith("hard-")) return "hard";
+  return "unknown";
 }
 
 async function runOneCase(
@@ -150,6 +162,32 @@ function aggregate(cases: EvalCaseResult[]): EvalRunSummary {
   };
 }
 
+/**
+ * Разбить cases по категориям сложности и агрегировать отдельно.
+ * Пустые категории опускаются.
+ */
+function aggregateByDifficulty(
+  cases: EvalCaseResult[],
+): Partial<Record<EvalDifficulty, EvalRunSummary>> {
+  const groups: Record<EvalDifficulty, EvalCaseResult[]> = {
+    easy: [],
+    medium: [],
+    hard: [],
+    unknown: [],
+  };
+  for (const c of cases) {
+    const cat = categorizeDifficulty(c.query.id);
+    groups[cat].push(c);
+  }
+  const result: Partial<Record<EvalDifficulty, EvalRunSummary>> = {};
+  for (const cat of ["easy", "medium", "hard", "unknown"] as EvalDifficulty[]) {
+    if (groups[cat].length > 0) {
+      result[cat] = aggregate(groups[cat]);
+    }
+  }
+  return result;
+}
+
 export async function runEvalSuite(opts: EvalRunOptions = {}): Promise<EvalRunReport> {
   const provider = getPreferredProvider(opts.providerOverride);
   if (!provider) throw new Error("Нет доступного LLM провайдера");
@@ -197,9 +235,17 @@ export async function runEvalSuite(opts: EvalRunOptions = {}): Promise<EvalRunRe
 
   const finishedAt = Date.now();
   const summary = aggregate(cases);
+  summary.byDifficulty = aggregateByDifficulty(cases);
+
+  const breakdown = Object.entries(summary.byDifficulty)
+    .map(
+      ([cat, s]) =>
+        `${cat}=${s!.passed}/${s!.total} (pass=${s!.passRate}, fewShot=${s!.fewShotHitRate})`,
+    )
+    .join(", ");
   logger.info(
     SCOPE,
-    `Run ${runId} done in ${finishedAt - startedAt}ms: passRate=${summary.passRate}, fewShotHitRate=${summary.fewShotHitRate}`,
+    `Run ${runId} done in ${finishedAt - startedAt}ms: passRate=${summary.passRate}, fewShotHitRate=${summary.fewShotHitRate} | ${breakdown}`,
   );
 
   return {

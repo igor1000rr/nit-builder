@@ -26,8 +26,13 @@ vi.mock("ai", () => ({
   }),
 }));
 
+// Реальный createOpenAI возвращает provider с методом .embedding(name) → modelHandle.
+// Код вызывает createOpenAI(opts).embedding(name) и передаёт результат в embed/embedMany.
+// Возвращаем заглушку с .embedding — само значение неважно, важно что вызов не падает.
 vi.mock("@ai-sdk/openai", () => ({
-  createOpenAI: () => () => ({}),
+  createOpenAI: () => ({
+    embedding: () => ({} as never),
+  }),
 }));
 
 // Импортируем ПОСЛЕ моков

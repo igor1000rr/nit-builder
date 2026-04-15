@@ -12,10 +12,11 @@ import {
 let tmpPath: string;
 
 async function waitForWrites(): Promise<void> {
-  // recordGeneration — fire-and-forget, даём event loop шанс довести запись
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setImmediate(r));
-  }
+  // recordGeneration — fire-and-forget. Параллельные fs.appendFile вызовы
+  // разрешаются только после того как event loop успеет обработать
+  // и микротаски и I/O callback'и. setImmediate в цикле этого недостаточно
+  // если приходится несколько fs round-trip-ов — даём 50ms реального времени.
+  await new Promise((r) => setTimeout(r, 50));
 }
 
 beforeEach(async () => {
@@ -157,7 +158,8 @@ describe("feedbackStore", () => {
         userMessage: `q${i}`,
       });
     }
-    await waitForWrites();
+    // Для 15 параллельных fs.appendFile нужно больше времени
+    await new Promise((r) => setTimeout(r, 100));
     const records = await readRecentFeedback(5);
     expect(records.length).toBe(5);
     // Последние 5 — это s10..s14

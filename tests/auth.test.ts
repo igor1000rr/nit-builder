@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { checkCsrf } from "~/lib/server/auth";
+import { createHash } from "node:crypto";
 import { checkRateLimit } from "~/lib/utils/rateLimit";
 
 function makeRequest(opts: {
@@ -22,7 +23,23 @@ function makeRequest(opts: {
   });
 }
 
+/** Воспроизводит deriveToken() из auth.ts — для построения валидного Bearer в тестах. */
+function expectedTokenFor(secret: string): string {
+  return createHash("sha256")
+    .update(`nit-builder:${secret}`)
+    .digest("hex")
+    .slice(0, 48);
+}
+
 describe("checkCsrf", () => {
+  beforeEach(() => {
+    delete process.env.NIT_API_SECRET;
+  });
+
+  afterEach(() => {
+    delete process.env.NIT_API_SECRET;
+  });
+
   it("allows GET requests unconditionally", () => {
     const req = makeRequest({ method: "GET" });
     expect(checkCsrf(req)).toBeNull();
@@ -33,14 +50,55 @@ describe("checkCsrf", () => {
     expect(checkCsrf(makeRequest({ method: "OPTIONS" }))).toBeNull();
   });
 
-  it("allows Bearer token requests (API clients)", () => {
+  it("allows valid Bearer token (matches NIT_API_SECRET) even from evil origin", () => {
+    const secret = "test-secret-very-long-string";
+    process.env.NIT_API_SECRET = secret;
     const req = makeRequest({
       method: "POST",
-      auth: "Bearer secret-token-123",
+      auth: `Bearer ${secret}`,
       host: "nit.by",
       origin: "http://evil.com",
     });
     expect(checkCsrf(req)).toBeNull();
+  });
+
+  it("allows valid Bearer derived token from evil origin", () => {
+    const secret = "test-secret-very-long-string";
+    process.env.NIT_API_SECRET = secret;
+    const req = makeRequest({
+      method: "POST",
+      auth: `Bearer ${expectedTokenFor(secret)}`,
+      host: "nit.by",
+      origin: "http://evil.com",
+    });
+    expect(checkCsrf(req)).toBeNull();
+  });
+
+  it("BLOCKS invalid Bearer from evil origin (no silent CSRF bypass)", () => {
+    // Регрессия: до фикса любой `Bearer что-угодно` обходил CSRF.
+    // Сейчас — только валидный токен; невалидный продолжает CSRF-проверку.
+    process.env.NIT_API_SECRET = "real-secret-very-long";
+    const req = makeRequest({
+      method: "POST",
+      auth: "Bearer fake-attacker-token",
+      host: "nit.by",
+      origin: "http://evil.com",
+    });
+    const res = checkCsrf(req);
+    expect(res?.status).toBe(403);
+  });
+
+  it("BLOCKS Bearer when NIT_API_SECRET not set (auth disabled mode)", () => {
+    // Bearer должен быть проигнорирован если auth не настроен — иначе мы
+    // молча пропускаем все Bearer-запросы как guest без origin-проверки.
+    const req = makeRequest({
+      method: "POST",
+      auth: "Bearer any-token",
+      host: "nit.by",
+      origin: "http://evil.com",
+    });
+    const res = checkCsrf(req);
+    expect(res?.status).toBe(403);
   });
 
   it("allows matching Origin", () => {

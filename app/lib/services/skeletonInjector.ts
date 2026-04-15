@@ -1,25 +1,33 @@
 /**
- * Skeleton Direct Injection (Tier 3).
+ * Skeleton Direct Injection (Tier 3 + 4 extended).
  *
- * Идея. Если Planner уже выдал весь копирайт (hero/benefits/social_proof/cta) —
- * Coder НЕ НУЖЕН. Мы прямо подставляем тексты в шаблон через server-side
- * DOM-replacement по эвристическим селекторам.
+ * Идея. Если Planner уже выдал весь копирайт (hero/benefits/social_proof/cta +
+ * опц. pricing/faq/hours/contact) — Coder НЕ НУЖЕН. Мы прямо подставляем тексты
+ * в шаблон через server-side DOM-replacement по эвристическим селекторам.
  *
  * Эффект:
- *   - Coder вызывается в ~20-30% случаев вместо 100%
+ *   - Coder вызывается в ~10-20% случаев вместо 100%
  *   - latency падает с ~15s до ~50ms на successful injection
  *   - токены: 0 Coder tokens (раньше 6000+ prompt + 4000+ completion)
  *   - гарантия: HTML-структура шаблона не ломается
  *
- * Слоты (в порядке приоритета):
+ * Core слоты (всегда учитываются в fillRatio, в порядке приоритета):
  *   1. <title> — из plan.business_type (SEO, всегда работает)
  *   2. <h1> в #hero → hero_headline
  *   3. Первый <p> после h1 в #hero → hero_subheadline
  *   4. <h3>+<p> в features/benefits/why-us/services/about → key_benefits[i]
- *   5. social_proof_line → #testimonials/#social-proof/#reviews или inject после hero
- *   6. cta_microcopy → <small class="cta-microcopy"> под первой <a> кнопкой в hero
+ *   5. social_proof_line → #testimonials/#social-proof/#reviews
+ *   6. cta_microcopy → <small class="cta-microcopy"> под первой <a> в hero
  *
- * Порог. Если < SLOT_FILL_THRESHOLD слотов реально заменено → фолбэк на Coder.
+ * Extended слоты (Tier 4, opt-in: считаются в slotsTotal ТОЛЬКО если данные в plan
+ * есть И соответствующая <section> найдена в шаблоне; иначе тихо пропускаются —
+ * не штрафуют fillRatio и не вызывают fallback на Coder):
+ *   7. pricing_tiers → карточки в #pricing
+ *   8. faq → h3/h4+p или dt+dd в #faq
+ *   9. hours_text → текст в #hours или #contact
+ *  10. contact_phone/email/address → <a href="tel/mailto"> и <address> в #contact/#footer
+ *
+ * Порог. Если < SLOT_FILL_THRESHOLD core-слотов реально заменено → фолбэк на Coder.
  *
  * Backward-compat. Если plan без hero_headline (legacy planner) — сразу ok:false,
  * оркестратор пойдёт через старый Coder pipeline.
@@ -28,7 +36,7 @@
  */
 
 import { logger } from "~/lib/utils/logger";
-import type { Plan } from "~/lib/utils/planSchema";
+import type { Plan, PlanFaqItem, PlanPricingTier } from "~/lib/utils/planSchema";
 
 const SCOPE = "skeletonInjector";
 const SLOT_FILL_THRESHOLD = 0.6;
@@ -44,6 +52,7 @@ export type InjectionResult =
       slotsFilled: number;
       slotsTotal: number;
       fillRatio: number;
+      extendedSlotsFilled: number;
     }
   | {
       ok: false;
@@ -51,6 +60,7 @@ export type InjectionResult =
       slotsFilled: number;
       slotsTotal: number;
       fillRatio: number;
+      extendedSlotsFilled: number;
     };
 
 /** Находит [start, end) индексы секции по id. */
@@ -179,10 +189,6 @@ function replaceBenefitCards(
   return { html: newHtml, replaced: limit };
 }
 
-/**
- * Замена <title>...</title> в head на SEO-ориентированный заголовок из plan.
- * Формат: "{hero_headline} — {business_type}" или fallback на business_type.
- */
 function replaceTitle(html: string, plan: Plan): { html: string; replaced: boolean } {
   const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
   if (!titleMatch || titleMatch.index === undefined) {
@@ -201,11 +207,6 @@ function replaceTitle(html: string, plan: Plan): { html: string; replaced: boole
   };
 }
 
-/**
- * Подставляет social_proof_line. Приоритет:
- *   1. Первый <p> в #testimonials/#social-proof/#reviews → заменить
- *   2. Иначе ok=false (не критично — слот опциональный, фолбэк не нужен)
- */
 function replaceSocialProof(
   html: string,
   socialProofLine: string,
@@ -220,10 +221,6 @@ function replaceSocialProof(
   return { html, replaced: false };
 }
 
-/**
- * Добавляет <small class="cta-microcopy"> после первой <a> кнопки в hero.
- * Идемпотентно: если уже есть .cta-microcopy в hero — перезаписываем текст.
- */
 function injectCtaMicrocopy(
   html: string,
   microcopy: string,
@@ -232,7 +229,6 @@ function injectCtaMicrocopy(
   if (!heroRange) return { html, replaced: false };
   const sectionHtml = html.slice(heroRange.start, heroRange.end);
 
-  // Если уже есть — перезаписываем
   const existingMatch = sectionHtml.match(
     /<small\s+class=["'][^"']*cta-microcopy[^"']*["'][^>]*>[\s\S]*?<\/small>/i,
   );
@@ -247,7 +243,6 @@ function injectCtaMicrocopy(
     return { html: before + replacement + after, replaced: true };
   }
 
-  // Ищем первую <a> в hero и вставляем <small> после неё (после закрывающего </a>)
   const aMatch = sectionHtml.match(/<a\b[^>]*>[\s\S]*?<\/a>/i);
   if (!aMatch || aMatch.index === undefined) return { html, replaced: false };
   const insertAt =
@@ -257,6 +252,358 @@ function injectCtaMicrocopy(
     html: html.slice(0, insertAt) + insertion + html.slice(insertAt),
     replaced: true,
   };
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// EXTENDED SLOTS (Tier 4)
+// ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Pricing tiers. Стратегия: ищем h3 headings в #pricing (один h3 = один тариф).
+ * Под каждым h3 ожидаем найти:
+ *   - элемент с ценой (.price/.tier-price/первая большая цифра)
+ *   - <ul>/<ol> с features
+ * Заменяем минимум name+price+features. period/highlighted — best effort,
+ * только если есть явные классы (.period, .featured/.highlighted).
+ *
+ * Если структура не совпадает (нет h3 или ul) — replaced=0, тихо пропускаем.
+ */
+function replacePricingTiers(
+  html: string,
+  range: { start: number; end: number },
+  tiers: PlanPricingTier[],
+): { html: string; replaced: number } {
+  const sectionHtml = html.slice(range.start, range.end);
+  const headingRe = /<h3\b[^>]*>([\s\S]*?)<\/h3>/gi;
+  type Heading = { openIdx: number; closeEnd: number };
+  const headings: Heading[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = headingRe.exec(sectionHtml)) !== null) {
+    headings.push({ openIdx: m.index, closeEnd: m.index + m[0].length });
+  }
+  if (headings.length < 2) return { html, replaced: 0 };
+
+  const cards = headings.slice(0, Math.min(headings.length, tiers.length));
+  type Replacement = { from: number; to: number; text: string };
+  const replacements: Replacement[] = [];
+
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i]!;
+    const tier = tiers[i]!;
+    const nextCard = cards[i + 1];
+    const cardEnd = nextCard ? nextCard.openIdx : sectionHtml.length;
+
+    // 1. Заменить h3 текст
+    const h3OpenLen = (sectionHtml.slice(card.openIdx).match(/<h3\b[^>]*>/i)?.[0].length ?? 0);
+    replacements.push({
+      from: card.openIdx + h3OpenLen,
+      to: card.closeEnd - "</h3>".length,
+      text: escapeHtml(tier.name),
+    });
+
+    const cardSlice = sectionHtml.slice(card.closeEnd, cardEnd);
+
+    // 2. Заменить цену — ищем .price или первый <span>/<p>/<div> класса с "price"
+    const priceMatch = cardSlice.match(
+      /<(span|p|div|strong)\b[^>]*class=["'][^"']*price[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i,
+    );
+    if (priceMatch && priceMatch.index !== undefined) {
+      const tagOpenLen = priceMatch[0].indexOf(">") + 1;
+      const tagCloseLen = `</${priceMatch[1]}>`.length;
+      const priceText =
+        tier.period && !/\b(мес|month|year|год|сеанс|раз)\b/i.test(tier.price)
+          ? `${tier.price} ${tier.period}`
+          : tier.price;
+      replacements.push({
+        from: card.closeEnd + priceMatch.index + tagOpenLen,
+        to: card.closeEnd + priceMatch.index + priceMatch[0].length - tagCloseLen,
+        text: escapeHtml(priceText),
+      });
+    }
+
+    // 3. Заменить features — первый <ul> или <ol> в карточке
+    const ulMatch = cardSlice.match(/<(ul|ol)\b[^>]*>([\s\S]*?)<\/\1>/i);
+    if (ulMatch && ulMatch.index !== undefined) {
+      const ulTag = ulMatch[1]!.toLowerCase();
+      const liItems = tier.features
+        .map((f) => `<li>${escapeHtml(f)}</li>`)
+        .join("\n");
+      const ulOpenMatch = ulMatch[0].match(/^<(?:ul|ol)\b[^>]*>/i);
+      const ulOpen = ulOpenMatch?.[0] ?? `<${ulTag}>`;
+      replacements.push({
+        from: card.closeEnd + ulMatch.index,
+        to: card.closeEnd + ulMatch.index + ulMatch[0].length,
+        text: `${ulOpen}\n${liItems}\n</${ulTag}>`,
+      });
+    }
+  }
+
+  if (replacements.length === 0) return { html, replaced: 0 };
+
+  replacements.sort((a, b) => b.from - a.from);
+  let updatedSection = sectionHtml;
+  for (const r of replacements) {
+    updatedSection =
+      updatedSection.slice(0, r.from) + r.text + updatedSection.slice(r.to);
+  }
+
+  const newHtml =
+    html.slice(0, range.start) + updatedSection + html.slice(range.end);
+  return { html: newHtml, replaced: cards.length };
+}
+
+/**
+ * FAQ. Стратегия: ищем повторяющиеся пары h3/h4+p или dt+dd.
+ * Заменяем минимум первые N=faq.length пар.
+ * Шаблоны без структурированного FAQ (только один <details>) — пропускаются.
+ */
+function replaceFaqItems(
+  html: string,
+  range: { start: number; end: number },
+  faq: PlanFaqItem[],
+): { html: string; replaced: number } {
+  const sectionHtml = html.slice(range.start, range.end);
+
+  // Стратегия А: h3/h4 + p
+  const headingRe = /<(h3|h4)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  type Pair = {
+    qOpenIdx: number;
+    qCloseEnd: number;
+    qTag: string;
+    aMatch?: { idx: number; openLen: number; len: number };
+  };
+  const headings: Array<{ openIdx: number; closeEnd: number; tag: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = headingRe.exec(sectionHtml)) !== null) {
+    headings.push({
+      openIdx: m.index,
+      closeEnd: m.index + m[0].length,
+      tag: m[1]!.toLowerCase(),
+    });
+  }
+
+  if (headings.length >= 2) {
+    const pairs: Pair[] = [];
+    for (let i = 0; i < headings.length; i++) {
+      const h = headings[i]!;
+      const nextH = headings[i + 1];
+      const tail = sectionHtml.slice(
+        h.closeEnd,
+        nextH ? nextH.openIdx : sectionHtml.length,
+      );
+      const pMatch = tail.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i);
+      if (pMatch && pMatch.index !== undefined) {
+        pairs.push({
+          qOpenIdx: h.openIdx,
+          qCloseEnd: h.closeEnd,
+          qTag: h.tag,
+          aMatch: {
+            idx: h.closeEnd + pMatch.index,
+            openLen: pMatch[0].indexOf(">") + 1,
+            len: pMatch[0].length,
+          },
+        });
+      }
+    }
+
+    if (pairs.length >= 2) {
+      const limit = Math.min(pairs.length, faq.length);
+      type R = { from: number; to: number; text: string };
+      const reps: R[] = [];
+      for (let i = 0; i < limit; i++) {
+        const pair = pairs[i]!;
+        const item = faq[i]!;
+        const qOpenLen = (sectionHtml.slice(pair.qOpenIdx).match(new RegExp(`<${pair.qTag}\\b[^>]*>`, "i"))?.[0].length ?? 0);
+        reps.push({
+          from: pair.qOpenIdx + qOpenLen,
+          to: pair.qCloseEnd - `</${pair.qTag}>`.length,
+          text: escapeHtml(item.question),
+        });
+        if (pair.aMatch) {
+          reps.push({
+            from: pair.aMatch.idx + pair.aMatch.openLen,
+            to: pair.aMatch.idx + pair.aMatch.len - "</p>".length,
+            text: escapeHtml(item.answer),
+          });
+        }
+      }
+      reps.sort((a, b) => b.from - a.from);
+      let updated = sectionHtml;
+      for (const r of reps) {
+        updated = updated.slice(0, r.from) + r.text + updated.slice(r.to);
+      }
+      return {
+        html: html.slice(0, range.start) + updated + html.slice(range.end),
+        replaced: limit,
+      };
+    }
+  }
+
+  // Стратегия Б: dt + dd
+  const dtRe = /<dt\b[^>]*>([\s\S]*?)<\/dt>/gi;
+  const ddRe = /<dd\b[^>]*>([\s\S]*?)<\/dd>/gi;
+  const dts: Array<{ openIdx: number; closeEnd: number }> = [];
+  const dds: Array<{ openIdx: number; closeEnd: number }> = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = dtRe.exec(sectionHtml)) !== null) {
+    dts.push({ openIdx: mm.index, closeEnd: mm.index + mm[0].length });
+  }
+  while ((mm = ddRe.exec(sectionHtml)) !== null) {
+    dds.push({ openIdx: mm.index, closeEnd: mm.index + mm[0].length });
+  }
+  if (dts.length >= 2 && dds.length >= 2) {
+    const limit = Math.min(dts.length, dds.length, faq.length);
+    type R = { from: number; to: number; text: string };
+    const reps: R[] = [];
+    for (let i = 0; i < limit; i++) {
+      const dt = dts[i]!;
+      const dd = dds[i]!;
+      const item = faq[i]!;
+      const dtOpenLen = (sectionHtml.slice(dt.openIdx).match(/<dt\b[^>]*>/i)?.[0].length ?? 0);
+      const ddOpenLen = (sectionHtml.slice(dd.openIdx).match(/<dd\b[^>]*>/i)?.[0].length ?? 0);
+      reps.push({
+        from: dt.openIdx + dtOpenLen,
+        to: dt.closeEnd - "</dt>".length,
+        text: escapeHtml(item.question),
+      });
+      reps.push({
+        from: dd.openIdx + ddOpenLen,
+        to: dd.closeEnd - "</dd>".length,
+        text: escapeHtml(item.answer),
+      });
+    }
+    reps.sort((a, b) => b.from - a.from);
+    let updated = sectionHtml;
+    for (const r of reps) {
+      updated = updated.slice(0, r.from) + r.text + updated.slice(r.to);
+    }
+    return {
+      html: html.slice(0, range.start) + updated + html.slice(range.end),
+      replaced: limit,
+    };
+  }
+
+  return { html, replaced: 0 };
+}
+
+/**
+ * Hours text. Ищет в #hours или #contact:
+ *   - <p class="...hours..."> или <span class="...hours...">
+ *   - <time>
+ *   - первый <p> в #hours
+ */
+function replaceHoursText(
+  html: string,
+  hoursText: string,
+): { html: string; replaced: boolean } {
+  const sectionIds = ["hours", "schedule", "contact"];
+  for (const sid of sectionIds) {
+    const range = findSectionRange(html, sid);
+    if (!range) continue;
+    const sectionHtml = html.slice(range.start, range.end);
+
+    // Приоритет 1: явный класс hours/schedule/working-hours
+    const classMatch = sectionHtml.match(
+      /<(span|p|div|time)\b[^>]*class=["'][^"']*(hours|schedule|working|time)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i,
+    );
+    if (classMatch && classMatch.index !== undefined) {
+      const tagOpenLen = classMatch[0].indexOf(">") + 1;
+      const tagCloseLen = `</${classMatch[1]}>`.length;
+      const before =
+        html.slice(0, range.start) + sectionHtml.slice(0, classMatch.index + tagOpenLen);
+      const after =
+        sectionHtml.slice(classMatch.index + classMatch[0].length - tagCloseLen) +
+        html.slice(range.end);
+      return {
+        html: before + escapeHtml(hoursText) + after,
+        replaced: true,
+      };
+    }
+
+    // Приоритет 2: <time>
+    const timeMatch = sectionHtml.match(/<time\b[^>]*>([\s\S]*?)<\/time>/i);
+    if (timeMatch && timeMatch.index !== undefined) {
+      const tagOpenLen = timeMatch[0].indexOf(">") + 1;
+      const before =
+        html.slice(0, range.start) + sectionHtml.slice(0, timeMatch.index + tagOpenLen);
+      const after =
+        sectionHtml.slice(timeMatch.index + timeMatch[0].length - "</time>".length) +
+        html.slice(range.end);
+      return { html: before + escapeHtml(hoursText) + after, replaced: true };
+    }
+
+    // Приоритет 3: для #hours — первый <p>
+    if (sid === "hours") {
+      const r = replaceFirstTagInRange(html, range, "p", hoursText);
+      if (r.replaced) return r;
+    }
+  }
+  return { html, replaced: false };
+}
+
+/**
+ * Contact info. Стратегия:
+ *   - <a href="tel:..."> → href + текст
+ *   - <a href="mailto:..."> → href + текст
+ *   - <address> или <span class="address"> → текст
+ * Возвращает кол-во реально заменённых полей (0..3).
+ */
+function replaceContactInfo(
+  html: string,
+  plan: Plan,
+): { html: string; replaced: number } {
+  let updated = html;
+  let replacedCount = 0;
+
+  if (plan.contact_phone) {
+    const phoneDigits = plan.contact_phone.replace(/[^\d+]/g, "");
+    const phoneRe = /<a\b[^>]*href=["']tel:[^"']*["'][^>]*>([\s\S]*?)<\/a>/i;
+    const m = updated.match(phoneRe);
+    if (m && m.index !== undefined) {
+      const newAnchor = `<a href="tel:${escapeHtml(phoneDigits)}">${escapeHtml(plan.contact_phone)}</a>`;
+      updated =
+        updated.slice(0, m.index) + newAnchor + updated.slice(m.index + m[0].length);
+      replacedCount++;
+    }
+  }
+
+  if (plan.contact_email) {
+    const emailRe = /<a\b[^>]*href=["']mailto:[^"']*["'][^>]*>([\s\S]*?)<\/a>/i;
+    const m = updated.match(emailRe);
+    if (m && m.index !== undefined) {
+      const newAnchor = `<a href="mailto:${escapeHtml(plan.contact_email)}">${escapeHtml(plan.contact_email)}</a>`;
+      updated =
+        updated.slice(0, m.index) + newAnchor + updated.slice(m.index + m[0].length);
+      replacedCount++;
+    }
+  }
+
+  if (plan.contact_address) {
+    // Сначала <address>, потом span/p с классом address
+    const addrRe = /<address\b[^>]*>([\s\S]*?)<\/address>/i;
+    const am = updated.match(addrRe);
+    if (am && am.index !== undefined) {
+      const tagOpenLen = am[0].indexOf(">") + 1;
+      const before = updated.slice(0, am.index + tagOpenLen);
+      const after = updated.slice(am.index + am[0].length - "</address>".length);
+      updated = before + escapeHtml(plan.contact_address) + after;
+      replacedCount++;
+    } else {
+      const classRe =
+        /<(span|p|div)\b[^>]*class=["'][^"']*address[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i;
+      const cm = updated.match(classRe);
+      if (cm && cm.index !== undefined) {
+        const tagOpenLen = cm[0].indexOf(">") + 1;
+        const tagCloseLen = `</${cm[1]}>`.length;
+        const before = updated.slice(0, cm.index + tagOpenLen);
+        const after = updated.slice(cm.index + cm[0].length - tagCloseLen);
+        updated = before + escapeHtml(plan.contact_address) + after;
+        replacedCount++;
+      }
+    }
+  }
+
+  return { html: updated, replaced: replacedCount };
 }
 
 export function injectPlanIntoTemplate(
@@ -270,10 +617,11 @@ export function injectPlanIntoTemplate(
       slotsFilled: 0,
       slotsTotal: 0,
       fillRatio: 0,
+      extendedSlotsFilled: 0,
     };
   }
 
-  // Слоты которые пытаемся заполнить (считаем только те что имеют данные в plan)
+  // Core слоты — учитываются в fillRatio
   const slots: Array<{ name: string; required: boolean; available: boolean }> = [
     { name: "hero_headline", required: true, available: !!plan.hero_headline },
     { name: "hero_subheadline", required: false, available: !!plan.hero_subheadline },
@@ -291,14 +639,16 @@ export function injectPlanIntoTemplate(
       slotsFilled: 0,
       slotsTotal: slots.length,
       fillRatio: 0,
+      extendedSlotsFilled: 0,
     };
   }
 
   let html = templateHtml;
   let filled = 0;
+  let extendedFilled = 0;
   const slotsTotal = slots.filter((s) => s.available).length;
 
-  // 1. <title> — SEO
+  // 1. <title>
   if (plan.business_type) {
     const r = replaceTitle(html, plan);
     if (r.replaced) {
@@ -307,7 +657,7 @@ export function injectPlanIntoTemplate(
     }
   }
 
-  // 2. Hero headline — первый h1 в #hero
+  // 2. Hero headline
   const heroRange = findSectionRange(html, "hero");
   if (heroRange && plan.hero_headline) {
     const r = replaceFirstTagInRange(html, heroRange, "h1", plan.hero_headline);
@@ -317,7 +667,7 @@ export function injectPlanIntoTemplate(
     }
   }
 
-  // 3. Hero subheadline — первый p после h1 в #hero
+  // 3. Hero subheadline
   if (plan.hero_subheadline) {
     const heroRange2 = findSectionRange(html, "hero");
     if (heroRange2) {
@@ -375,7 +725,7 @@ export function injectPlanIntoTemplate(
     }
   }
 
-  // 5. Social proof line
+  // 5. Social proof
   if (plan.social_proof_line) {
     const r = replaceSocialProof(html, plan.social_proof_line);
     if (r.replaced) {
@@ -393,6 +743,50 @@ export function injectPlanIntoTemplate(
     }
   }
 
+  // ─── EXTENDED SLOTS (Tier 4, opt-in: НЕ в slotsTotal) ───
+  // Учитываем только если plan содержит данные И section найдена.
+  // Если section нет — тихо пропускаем без штрафа fillRatio.
+  // Если section есть но replace не сработал — тоже пропускаем (возможно
+  // нестандартная структура шаблона; Coder лучше не звать ради этого).
+
+  if (plan.pricing_tiers && plan.pricing_tiers.length >= 2) {
+    const range = findSectionRange(html, "pricing");
+    if (range) {
+      const r = replacePricingTiers(html, range, plan.pricing_tiers);
+      if (r.replaced > 0) {
+        html = r.html;
+        extendedFilled++;
+      }
+    }
+  }
+
+  if (plan.faq && plan.faq.length >= 3) {
+    const range = findSectionRange(html, "faq");
+    if (range) {
+      const r = replaceFaqItems(html, range, plan.faq);
+      if (r.replaced > 0) {
+        html = r.html;
+        extendedFilled++;
+      }
+    }
+  }
+
+  if (plan.hours_text) {
+    const r = replaceHoursText(html, plan.hours_text);
+    if (r.replaced) {
+      html = r.html;
+      extendedFilled++;
+    }
+  }
+
+  if (plan.contact_phone || plan.contact_email || plan.contact_address) {
+    const r = replaceContactInfo(html, plan);
+    if (r.replaced > 0) {
+      html = r.html;
+      extendedFilled++;
+    }
+  }
+
   const fillRatio = slotsTotal > 0 ? filled / slotsTotal : 0;
 
   if (fillRatio < SLOT_FILL_THRESHOLD) {
@@ -402,7 +796,15 @@ export function injectPlanIntoTemplate(
       slotsFilled: filled,
       slotsTotal,
       fillRatio,
+      extendedSlotsFilled: extendedFilled,
     };
+  }
+
+  if (extendedFilled > 0) {
+    logger.info(
+      SCOPE,
+      `Extended slots filled: ${extendedFilled} (pricing/faq/hours/contact)`,
+    );
   }
 
   return {
@@ -411,5 +813,6 @@ export function injectPlanIntoTemplate(
     slotsFilled: filled,
     slotsTotal,
     fillRatio,
+    extendedSlotsFilled: extendedFilled,
   };
 }

@@ -15,7 +15,7 @@
  *   - injectMethod НЕ равен 'skeleton' (Tier 3): skeleton-результаты используют plan как есть без
  *     применения Coder LLM — инжест таких в RAG не даёт новой информации (plan уже был
  *     в корпусе когда Planner его сгенерировал)
- *   - plan присутствует и проходит PlanSchema
+ *   - plan присутствует
  *   - userMessage >= MIN_QUERY_LEN (8 chars) и <= MAX_QUERY_LEN — отфильтровывает мусор
  *   - durationMs > 0 и < MAX_DURATION_MS (фильтруем выбросы)
  *   - план проходит quality-чеки (общие с eval-metrics):
@@ -23,6 +23,12 @@
  *       • нет banned phrases (те же 16 штампов)
  *       • benefits 3-5 пунктов
  *       • в benefits есть хотя бы 1 числовой факт (иначе plan общий и не обучает)
+ *
+ * ВАЖНО: zod safeParse тут НЕ применяется — иначе строгая schema (min/max
+ * на hero/benefits) перехватывала бы записи раньше специфичных quality-причин,
+ * и админка показывала бы только "plan_invalid_schema" вместо "hero_invalid"
+ * или "benefits_count_invalid". Schema-валидация уже сделана на стадии Planner
+ * перед записью в feedback.jsonl.
  *
  * Дедупликация. ID формат `feedback:plan:{sha1(userMessage)}` — запросы
  * одинаковые по тексту индексируются раз (даже если plan потом подправятся).
@@ -48,7 +54,7 @@ import {
 } from "~/lib/services/feedbackStore";
 import { addDocument, hasDocument } from "~/lib/services/ragStore";
 import { buildContextualText } from "~/lib/services/contextualEmbed";
-import { PlanSchema, type Plan } from "~/lib/utils/planSchema";
+import type { Plan } from "~/lib/utils/planSchema";
 
 const SCOPE = "feedbackIngest";
 
@@ -109,9 +115,7 @@ export function qualifies(
   if (record.injectMethod === "skeleton") return { ok: false, reason: "skeleton_inject" };
   if (!record.plan) return { ok: false, reason: "no_plan" };
 
-  const planParsed = PlanSchema.safeParse(record.plan);
-  if (!planParsed.success) return { ok: false, reason: "plan_invalid_schema" };
-  const plan = planParsed.data;
+  const plan = record.plan;
 
   const query = record.userMessage.trim();
   if (query.length < MIN_QUERY_LEN) return { ok: false, reason: "query_too_short" };

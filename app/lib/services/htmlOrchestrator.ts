@@ -63,6 +63,10 @@ import {
   extractSectionFromResponse,
   polishSectionStream,
 } from "~/lib/services/sectionPolish";
+import {
+  injectStylePreset,
+  type StylePresetId,
+} from "~/lib/llm/style-presets";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -112,6 +116,7 @@ export type PipelineEvent =
       /** Tier 4: сколько расширенных слотов (pricing/faq/hours/contact) заполнено (0..4). */
       extendedSlotsFilled: number;
     }
+  | { type: "style_preset_used"; presetId: StylePresetId; promptDelta: number }
   | { type: "error"; message: string };
 
 export type OrchestratorOptions = {
@@ -119,6 +124,13 @@ export type OrchestratorOptions = {
   skipPlanCache?: boolean;
   polishIntent?: PolishIntent;
   targetSection?: string;
+  /**
+   * Style preset для Coder-этапа. Default "generic" — поведение как раньше.
+   * Для "neon-cyber" в system prompt инжектится ~900 chars с palette / fonts /
+   * signature moves; Coder берёт их как жёсткие правила.
+   * Skeleton-injection path (без Coder) preset игнорирует — там нет LLM-шага.
+   */
+  stylePresetId?: StylePresetId;
 };
 
 function stripCodeFences(text: string): string {
@@ -543,6 +555,17 @@ export async function* executeHtmlSimple(
     };
   }
 
+  // === Style preset injection для Coder system prompt ===
+  // Default "generic" → no-op (возвращает CODER_SYSTEM_PROMPT без изменений).
+  // "neon-cyber" → дописывает ~900 chars правил (палитра, шрифты, glitch/hairline).
+  // Сохраняем исходный prompt чтобы можно было считать promptDelta для дебага.
+  const presetId: StylePresetId = options.stylePresetId ?? "generic";
+  const coderSystemPrompt = injectStylePreset(CODER_SYSTEM_PROMPT, presetId);
+  const promptDelta = coderSystemPrompt.length - CODER_SYSTEM_PROMPT.length;
+  if (promptDelta > 0) {
+    yield { type: "style_preset_used", presetId, promptDelta };
+  }
+
   yield {
     type: "step_start",
     roleName: "Кодер",
@@ -553,7 +576,7 @@ export async function* executeHtmlSimple(
   try {
     const planJsonStr = JSON.stringify(currentPlan);
     const estimatedInputChars =
-      templateHtml.length + planJsonStr.length + CODER_SYSTEM_PROMPT.length + 200;
+      templateHtml.length + planJsonStr.length + coderSystemPrompt.length + 200;
     const budget = checkContextBudget(provider, estimatedInputChars, 8000);
     if (budget.warning) logger.warn(SCOPE, budget.warning);
     if (!budget.ok) {
@@ -580,12 +603,12 @@ export async function* executeHtmlSimple(
       provider,
       templateHtml.length,
       planJsonStr.length,
-      CODER_SYSTEM_PROMPT.length,
+      coderSystemPrompt.length,
     );
 
     const result = await streamText({
       model,
-      system: CODER_SYSTEM_PROMPT,
+      system: coderSystemPrompt,
       prompt: buildCoderUserMessage({ templateHtml, plan: currentPlan }),
       maxOutputTokens: maxOutput,
       temperature: 0.4,

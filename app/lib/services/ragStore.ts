@@ -1,33 +1,12 @@
 /**
  * Универсальное RAG-хранилище: JSONL на диске + in-memory Map + cosine search + BM25.
  *
- * Design choices:
- * - До ~3000 записей in-memory O(N) поиск даёт <20ms на 768-dim embeddings.
- *   Переезд на sqlite-vec / LanceDB — когда корпус выйдет за 3k записей.
- * - JSONL append-only: простой формат, легко мигрировать, человекочитаемый.
- * - Embeddings лениво: если у документа нет embedding — считаем при первом
- *   search и кешируем в памяти (не персистим пока — избегаем гонок записи).
- * - Graceful degradation: если LM Studio embedding не доступен — search
- *   возвращает []. Orchestrator работает без few-shot.
+ * Asymmetric embedding support (Tier 4.1):
+ * - search() использует embedText(..., {kind: 'query'}) для запроса
+ * - ensureEmbedding/addDocument используют {kind: 'passage'} для индексируемых доков
+ * Для symmetric моделей (nomic, default) префиксы пусты в ENV — поведение как раньше.
  *
- * Contextual Retrieval (Tier 2, since v3):
- * - Документ может иметь contextualText — текст с префиксом [niche | tone | mood].
- *   Embedding считается от contextualText ?? text (graceful degradation).
- *   На стороне поиска query тоже префиксируется через extractQueryContext.
- *
- * BM25 (Tier 2 step 3):
- * - Отдельный inverted index по raw text (НЕ contextualText — BM25 ловит термы
- *   по совпадению, префикс [niche] только зашумит терм-фреквенции).
- * - Строится лениво при первом bm25Search после ensureLoaded.
- * - Перестраивается при addDocument (любая mutation invalidates index).
- *
- * Matryoshka dim validation (Tier 4):
- * - При изменении NIT_EMBEDDING_DIMS старые persisted embedding[] становятся stale.
- *   ensureEmbedding() проверяет length и перевычисляет lazy если mismatch — новый
- *   вектор остаётся in-memory (не персистится, чтобы не ломать JSONL обратный
- *   откат). При ~30 docs в корпусе это ~3-5с одноразовый cold-start.
- *
- * Категории документов:
+ * Categories:
  * - plan_example     — (query → полный Plan) для few-shot планировщика
  * - hero_headline    — готовые hero-фразы по нишам
  * - benefits         — наборы key_benefits (3-5 пунктов)
@@ -104,8 +83,6 @@ async function loadFromDisk(): Promise<void> {
       try {
         const doc = JSON.parse(line) as RagDocument;
         if (doc.id && doc.text && doc.category) {
-          // Matryoshka stale check: если ENV задан и dim не совпадает — сбрасываем embedding,
-          // ensureEmbedding перевычислит при первом search
           if (
             targetDims &&
             doc.embedding &&
@@ -185,7 +162,6 @@ async function ensureEmbedding(
   doc: RagDocument,
   signal?: AbortSignal,
 ): Promise<number[] | null> {
-  // Matryoshka dim validation: если length не совпадает с ENV — инвалидируем
   const targetDims = getTargetEmbeddingDims();
   if (
     doc.embedding &&
@@ -195,9 +171,8 @@ async function ensureEmbedding(
     doc.embedding = undefined;
   }
   if (doc.embedding && doc.embedding.length > 0) return doc.embedding;
-  // Используем contextualText если есть (Tier 2 contextual retrieval), иначе raw text
   const sourceText = doc.contextualText ?? doc.text;
-  const vec = await embedText(sourceText, signal);
+  const vec = await embedText(sourceText, signal, { kind: "passage" });
   if (!vec) return null;
   doc.embedding = vec;
   return vec;
@@ -241,7 +216,7 @@ export async function addDocument(input: {
   if (!input.skipEmbed) {
     try {
       const embedSource = doc.contextualText ?? doc.text;
-      const vec = await embedText(embedSource);
+      const vec = await embedText(embedSource, undefined, { kind: "passage" });
       if (vec) doc.embedding = vec;
     } catch (err) {
       if ((err as Error).name === "AbortError") throw err;
@@ -277,7 +252,7 @@ export async function search(
 
   let qVec: number[] | null;
   try {
-    qVec = await embedText(embedSource, opts.signal);
+    qVec = await embedText(embedSource, opts.signal, { kind: "query" });
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     return [];

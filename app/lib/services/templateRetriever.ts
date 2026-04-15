@@ -1,10 +1,9 @@
 /**
  * Embedding-основанный retriever для каталога шаблонов.
  *
- * Проблема: все 22 шаблона в промпте планировщика это ~3.3KB на каждый
- * вызов, хотя реально релевантны 2-3 шаблона. Решение: сосчитать
- * эмбеддинги описаний шаблонов один раз, эмбеддинг запроса на каждый
- * вызов, cosine similarity → top-K. Передаём в планировщик только их.
+ * Asymmetric prefix support: индексирование описаний шаблонов идёт с passage-префиксом,
+ * эмбеддинг запроса — с query-префиксом. Для symmetric моделей (nomic) префиксы
+ * пусты в ENV — поведение как раньше.
  *
  * Требования: LM Studio должен иметь загруженную embedding-модель
  * (по умолчанию text-embedding-nomic-embed-text-v1.5). Если нет —
@@ -18,6 +17,7 @@ import { embed, embedMany } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { TEMPLATE_CATALOG } from "~/lib/config/htmlTemplatesCatalog";
 import { logger } from "~/lib/utils/logger";
+import { applyEmbeddingPrefix } from "~/lib/services/ragEmbeddings";
 
 const SCOPE = "templateRetriever";
 
@@ -60,7 +60,10 @@ async function buildIndex(): Promise<IndexEntry[]> {
   if (indexBuildPromise) return indexBuildPromise;
 
   indexBuildPromise = (async () => {
-    const docs = TEMPLATE_CATALOG.map((t) => ({ id: t.id, text: templateToText(t) }));
+    const docs = TEMPLATE_CATALOG.map((t) => ({
+      id: t.id,
+      text: applyEmbeddingPrefix(templateToText(t), "passage"),
+    }));
     const { embeddings } = await embedMany({
       model: getEmbeddingModel(),
       values: docs.map((d) => d.text),
@@ -96,16 +99,6 @@ function cosine(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-8);
 }
 
-/**
- * Найти top-K релевантных шаблонов для запроса.
- *
- * Возвращает массив id (отсортирован по убыванию релевантности) или null если:
- * - retriever отключён через env
- * - embedding-модель не доступна (после первого фейла отключается навсегда)
- * - пустой запрос
- *
- * Null → оркестратор передаёт полный каталог в планировщик (legacy fallback).
- */
 export async function retrieveTemplates(
   query: string,
   topK: number = 5,
@@ -119,7 +112,7 @@ export async function retrieveTemplates(
     const index = await buildIndex();
     const { embedding } = await embed({
       model: getEmbeddingModel(),
-      value: trimmed,
+      value: applyEmbeddingPrefix(trimmed, "query"),
       abortSignal: signal,
     });
     const scored = index.map((e) => ({ id: e.id, score: cosine(e.vec, embedding) }));
@@ -137,7 +130,6 @@ export async function retrieveTemplates(
   }
 }
 
-/** Для тестов: сброс внутреннего состояния. */
 export function _resetRetrieverState(): void {
   cachedIndex = null;
   indexBuildPromise = null;

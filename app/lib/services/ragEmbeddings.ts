@@ -4,15 +4,26 @@
  * возвращают пусто, пайплайн работает без few-shot как раньше.
  *
  * Конфиг:
- *   LMSTUDIO_BASE_URL           (default http://localhost:1234/v1)
- *   LMSTUDIO_EMBEDDING_MODEL    (default text-embedding-nomic-embed-text-v1.5)
- *   NIT_RAG_ENABLED=0           жёсткое отключение RAG
- *   NIT_EMBEDDING_DIMS          (опц., default — full dim)
- *                                Matryoshka slicing: обрезает вектор до N первых измерений
- *                                + L2-renormalize. Для nomic-embed-text-v1.5
- *                                (Matryoshka-trained) работает out-of-the-box:
- *                                256 dim сохраняет ~95% качества при ~3× ускорении.
- *                                Рекомендуемые значения: 128/256/512.
+ *   LMSTUDIO_BASE_URL              (default http://localhost:1234/v1)
+ *   LMSTUDIO_EMBEDDING_MODEL       (default text-embedding-nomic-embed-text-v1.5)
+ *   NIT_RAG_ENABLED=0              жёсткое отключение RAG
+ *   NIT_EMBEDDING_DIMS             (опц., default — full dim) Matryoshka slicing
+ *   NIT_EMBEDDING_QUERY_PREFIX     (опц., default "") asymmetric model query side
+ *   NIT_EMBEDDING_PASSAGE_PREFIX   (опц., default "") asymmetric model doc side
+ *
+ * Префиксы query/passage нужны для asymmetric моделей (e5, jina-v3, bge-m3),
+ * которые обучены отличать индексируемый passage от query. Для symmetric
+ * моделей (nomic) префиксы остаются пустыми — поведение как раньше.
+ *
+ * Примеры ENV:
+ *   # multilingual-e5-large:
+ *   LMSTUDIO_EMBEDDING_MODEL=multilingual-e5-large
+ *   NIT_EMBEDDING_QUERY_PREFIX="query: "
+ *   NIT_EMBEDDING_PASSAGE_PREFIX="passage: "
+ *
+ *   # bge-m3:
+ *   LMSTUDIO_EMBEDDING_MODEL=bge-m3
+ *   NIT_EMBEDDING_QUERY_PREFIX="" NIT_EMBEDDING_PASSAGE_PREFIX=""  # symmetric
  */
 
 import { logger } from "~/lib/utils/logger";
@@ -24,15 +35,17 @@ const EMBED_MODEL =
 const MAX_TEXT_LEN = 4000;
 const MAX_CACHE = 2000;
 
+export type EmbeddingKind = "query" | "passage";
+
 let disabled = false;
 const cache = new Map<string, number[]>();
 
-function cacheKey(text: string): string {
-  // Кеш-ключ включает размерность — иначе при изменении NIT_EMBEDDING_DIMS
+function cacheKey(text: string, kind: EmbeddingKind | "none"): string {
+  // Кеш-ключ включает размерность и kind — иначе при изменении ENV
   // летят векторы от прошлой конфигурации.
   const dims = getTargetEmbeddingDims() ?? "full";
   const base = text.length > 200 ? `${text.length}:${text.slice(0, 200)}` : text;
-  return `d${dims}:${base}`;
+  return `d${dims}:k${kind}:${base}`;
 }
 
 export function isRagDisabled(): boolean {
@@ -40,10 +53,6 @@ export function isRagDisabled(): boolean {
   return disabled;
 }
 
-/**
- * Целевая размерность embedding (опц. ENV NIT_EMBEDDING_DIMS).
- * null — используем полную размерность модели (768 для nomic-embed-text-v1.5).
- */
 export function getTargetEmbeddingDims(): number | null {
   const raw = process.env.NIT_EMBEDDING_DIMS;
   if (!raw) return null;
@@ -53,8 +62,27 @@ export function getTargetEmbeddingDims(): number | null {
 }
 
 /**
- * Matryoshka slicing + L2-renormalize. Нужен именно renorm — без него
- * cosine similarity искажается поскольку sliced вектор уже не unit-norm.
+ * Префикс для конкретного кинда. Пустой = не применять (symmetric модель).
+ */
+export function getEmbeddingPrefix(kind: EmbeddingKind): string {
+  if (kind === "query") return process.env.NIT_EMBEDDING_QUERY_PREFIX ?? "";
+  return process.env.NIT_EMBEDDING_PASSAGE_PREFIX ?? "";
+}
+
+/**
+ * Приклеивает префикс к тексту. Идемпотентно: если префикс уже есть — не дублирует.
+ * Используется templateRetriever и любыми другими модулями которые обходят embedText
+ * (например идут напрямую в ai SDK embed/embedMany).
+ */
+export function applyEmbeddingPrefix(text: string, kind: EmbeddingKind): string {
+  const prefix = getEmbeddingPrefix(kind);
+  if (!prefix) return text;
+  if (text.startsWith(prefix)) return text;
+  return prefix + text;
+}
+
+/**
+ * Matryoshka slicing + L2-renormalize.
  */
 export function truncateAndRenormalize(vec: number[], targetDims: number): number[] {
   if (vec.length <= targetDims) return vec;
@@ -75,11 +103,14 @@ export function truncateAndRenormalize(vec: number[], targetDims: number): numbe
 export async function embedText(
   text: string,
   signal?: AbortSignal,
+  opts: { kind?: EmbeddingKind } = {},
 ): Promise<number[] | null> {
   if (isRagDisabled()) return null;
   if (!text.trim()) return null;
 
-  const key = cacheKey(text);
+  const kind = opts.kind ?? "none";
+  const prefixed = kind !== "none" ? applyEmbeddingPrefix(text, kind) : text;
+  const key = cacheKey(prefixed, kind);
   const cached = cache.get(key);
   if (cached) return cached;
 
@@ -89,7 +120,7 @@ export async function embedText(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: EMBED_MODEL,
-        input: text.slice(0, MAX_TEXT_LEN),
+        input: prefixed.slice(0, MAX_TEXT_LEN),
       }),
       signal,
     });

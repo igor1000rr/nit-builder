@@ -1,17 +1,3 @@
-/**
- * Прогон eval-set: вызывает Planner для каждой query, собирает метрики,
- * аггрегирует summary.
- *
- * Изоляция от prod-pipeline:
- *   - skipPlanCache=true (всегда чистый прогон)
- *   - временный override NIT_RAG_ENABLED для disableRag
- *   - временный override NIT_PLAN_REASONING_ENABLED для disableReasoning
- *   - feedback не пишется (не передаём в recordGeneration)
- *
- * Возвращает структурированный отчёт. Хранение/история — на стороне вызывающего
- * (admin endpoint просто возвращает JSON в ответ).
- */
-
 import { logger } from "~/lib/utils/logger";
 import { getPreferredProvider, getModel } from "~/lib/llm/client";
 import { runPlannerForEval } from "~/lib/services/htmlOrchestrator";
@@ -34,12 +20,14 @@ function generateRunId(): string {
 async function runOneCase(
   query: EvalQuery,
   modelHandle: ReturnType<typeof getModel>,
+  modelName: string,
   signal: AbortSignal,
 ): Promise<EvalCaseResult> {
   const startMs = Date.now();
   try {
     const result = await runPlannerForEval({
       model: modelHandle,
+      modelName,
       sanitizedMessage: query.query,
       signal,
     });
@@ -106,7 +94,6 @@ function aggregate(cases: EvalCaseResult[]): EvalRunSummary {
     cases.reduce((s, c) => s + c.durationMs, 0) / total,
   );
 
-  // numeric facts из всех планов где есть benefits
   const numericFactsValues = cases
     .map((c) => c.checks.find((ck) => ck.name === "benefits_have_numeric_facts")?.value ?? 0)
     .filter((v) => v !== undefined);
@@ -138,7 +125,6 @@ function aggregate(cases: EvalCaseResult[]): EvalRunSummary {
       ? Number((templateMatches / templateChecks.length).toFixed(3))
       : 0;
 
-  // perCheckPassRate: для каждого имени чека — доля кейсов где он passed
   const perCheckPassRate: Record<string, number> = {};
   const checkNames = new Set<string>();
   for (const c of cases) for (const ck of c.checks) checkNames.add(ck.name);
@@ -169,13 +155,11 @@ export async function runEvalSuite(opts: EvalRunOptions = {}): Promise<EvalRunRe
   if (!provider) throw new Error("Нет доступного LLM провайдера");
 
   const modelHandle = getModel(provider);
+  const modelName = provider.defaultModel;
   const queries = opts.maxQueries
     ? EVAL_QUERIES.slice(0, opts.maxQueries)
     : EVAL_QUERIES;
 
-  // Override env только на время прогона. Сохраняем оригинал и восстанавливаем
-  // в finally. Это thread-unsafe (Node single-thread сглаживает) но допустимо
-  // для admin endpoint вызываемого вручную.
   const originalRagEnabled = process.env.NIT_RAG_ENABLED;
   const originalReasoningEnabled = process.env.NIT_PLAN_REASONING_ENABLED;
   if (opts.disableRag) process.env.NIT_RAG_ENABLED = "0";
@@ -192,7 +176,12 @@ export async function runEvalSuite(opts: EvalRunOptions = {}): Promise<EvalRunRe
   try {
     for (const query of queries) {
       if (opts.signal?.aborted) throw new Error("AbortError");
-      const caseResult = await runOneCase(query, modelHandle, opts.signal ?? new AbortController().signal);
+      const caseResult = await runOneCase(
+        query,
+        modelHandle,
+        modelName,
+        opts.signal ?? new AbortController().signal,
+      );
       cases.push(caseResult);
       logger.info(
         SCOPE,
@@ -200,7 +189,6 @@ export async function runEvalSuite(opts: EvalRunOptions = {}): Promise<EvalRunRe
       );
     }
   } finally {
-    // Restore env
     if (originalRagEnabled === undefined) delete process.env.NIT_RAG_ENABLED;
     else process.env.NIT_RAG_ENABLED = originalRagEnabled;
     if (originalReasoningEnabled === undefined) delete process.env.NIT_PLAN_REASONING_ENABLED;

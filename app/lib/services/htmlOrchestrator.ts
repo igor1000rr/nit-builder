@@ -52,6 +52,10 @@ import {
   buildAugmentedPlannerPrompt,
   isReasoningEnabled,
 } from "~/lib/services/planReasoning";
+import {
+  generatePlanConstrained,
+  isConstrainedDecodingEnabled,
+} from "~/lib/services/constrainedPlanGen";
 
 const SCOPE = "htmlOrchestrator";
 
@@ -127,21 +131,22 @@ function stripCodeFences(text: string): string {
 }
 
 /**
- * Ядро Planner pipeline. Используется как в prod-пайплайне (executeHtmlSimple),
- * так и в eval-runner-е (runPlannerForEval). Оркестрирует:
+ * Ядро Planner pipeline. Tier 2 порядок fallback-ов:
  *   1. plan cache check
  *   2. template retriever (shortlist)
- *   3. RAG few-shot (adaptive k)
+ *   3. RAG few-shot (hybrid: cosine + BM25 + RRF + reranker, contextual prefix)
  *   4. двухшаговый reasoning (опционально через ENV)
- *   5. generateObject с PlanSchema
- *   6. fallback на generateText если generateObject упал
- *   7. synthetic plan как last resort
+ *   5. constrained decoding через LM Studio json_schema (XGrammar) — 100% валидный JSON
+ *   6. fallback: AI SDK generateObject (prompt-engineering JSON mode)
+ *   7. fallback: generateText + manual JSON parse
+ *   8. synthetic plan как last resort
  */
 async function obtainPlan(
   model: ReturnType<typeof getModel>,
   sanitizedMessage: string,
   signal: AbortSignal,
   skipCache: boolean,
+  modelName: string,
 ): Promise<{
   plan: Plan;
   cached: boolean;
@@ -179,7 +184,7 @@ async function obtainPlan(
     if ((retrieverErr as Error).name === "AbortError") throw retrieverErr;
   }
 
-  // RAG few-shot (adaptive k + compact format)
+  // RAG few-shot (hybrid pipeline)
   let fewShotBlock = "";
   let fewShotCount = 0;
   let fewShotTopScore = 0;
@@ -201,18 +206,49 @@ async function obtainPlan(
       reasoning = await generatePlanReasoning(model, sanitizedMessage, signal);
     } catch (err) {
       if ((err as Error).name === "AbortError") throw err;
-      // graceful: продолжаем без reasoning
     }
   }
   const reasoningChars = reasoning.length;
   const augmentedPrompt = buildAugmentedPlannerPrompt(sanitizedMessage, reasoning);
+  const systemPrompt = buildPlannerSystemPrompt(candidateIds, fewShotBlock);
 
-  // Step 2: structured generateObject
+  // Step с5: Constrained decoding (LM Studio json_schema — XGrammar gives 100% valid JSON)
+  if (isConstrainedDecodingEnabled()) {
+    const constrained = await generatePlanConstrained({
+      modelName,
+      systemPrompt,
+      userPrompt: augmentedPrompt,
+      maxOutputTokens: 2500,
+      temperature: 0.3,
+      signal,
+    });
+    if (constrained.ok) {
+      setCachedPlan(sanitizedMessage, constrained.plan);
+      logger.info(SCOPE, "Plan generated via constrained decoding");
+      return {
+        plan: constrained.plan,
+        cached: false,
+        fewShotCount,
+        fewShotTopScore,
+        fewShotApproxTokens,
+        reasoningChars,
+      };
+    }
+    // Если transient — пробуем дальше generateObject. Если unsupported — тоже
+    // пробуем (вдруг SDK справится), но в generatePlanConstrained уже
+    // выставлен runtimeDisabled=true — дальше по сессии сразу generateObject.
+    logger.warn(
+      SCOPE,
+      `Constrained decoding failed (${constrained.reason}), fallback to generateObject`,
+    );
+  }
+
+  // Step 6: structured generateObject (AI SDK prompt-mode)
   try {
     const { object } = await generateObject({
       model,
       schema: PlanSchema,
-      system: buildPlannerSystemPrompt(candidateIds, fewShotBlock),
+      system: systemPrompt,
       prompt: augmentedPrompt,
       temperature: 0.3,
       abortSignal: signal,
@@ -235,7 +271,7 @@ async function obtainPlan(
     );
   }
 
-  // Fallback: free-form generateText + manual JSON parse
+  // Step 7: free-form generateText + manual JSON parse
   try {
     const { text: planRaw } = await generateText({
       model,
@@ -271,7 +307,7 @@ async function obtainPlan(
     logger.warn(SCOPE, `Fallback generateText failed: ${(genErr as Error).message}`);
   }
 
-  // Synthetic last resort
+  // Step 8: synthetic last resort
   const synthetic: Plan = {
     business_type: sanitizedMessage.slice(0, 100) || "универсальный сайт",
     target_audience: "",
@@ -296,11 +332,11 @@ async function obtainPlan(
 
 /**
  * Public entry для eval-pipeline. Использует obtainPlan с skipCache=true,
- * не пишет feedback и не трогает sessionMemory. Не используется в prod пайплайне —
- * только в evalRunner.
+ * не пишет feedback и не трогает sessionMemory.
  */
 export async function runPlannerForEval(params: {
   model: ReturnType<typeof getModel>;
+  modelName: string;
   sanitizedMessage: string;
   signal: AbortSignal;
 }): Promise<{
@@ -315,6 +351,7 @@ export async function runPlannerForEval(params: {
       params.sanitizedMessage,
       params.signal,
       true, // всегда skipCache в eval
+      params.modelName,
     );
     return {
       plan: result.plan,
@@ -398,7 +435,13 @@ export async function* executeHtmlSimple(
   };
 
   try {
-    const obtained = await obtainPlan(model, sanitized, signal, options.skipPlanCache ?? false);
+    const obtained = await obtainPlan(
+      model,
+      sanitized,
+      signal,
+      options.skipPlanCache ?? false,
+      provider.defaultModel,
+    );
     currentPlan = obtained.plan;
     planCachedFlag = obtained.cached;
     memory.planJson = obtained.plan;

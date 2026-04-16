@@ -1,6 +1,6 @@
 {
   "name": "nit-builder",
-  "version": "2.0.0-alpha.0",
+  "version": "2.0.0-beta.1",
   "description": "AI HTML site builder with peer-to-peer tunnel architecture. Users bring their own GPU.",
   "private": false,
   "type": "module",

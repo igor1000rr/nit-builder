@@ -62,10 +62,17 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
 
   function copyToken() {
     if (!newToken) return;
-    navigator.clipboard.writeText(newToken).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard
+      .writeText(newToken)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        setRegenerateError(
+          "Буфер обмена недоступен. Скопируй токен вручную.",
+        );
+      });
   }
 
   async function handleLogout() {

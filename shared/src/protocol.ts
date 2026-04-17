@@ -129,7 +129,12 @@ export type ServerToBrowser =
       type: "generate_error";
       requestId: string;
       error: string;
-      code?: "NO_TUNNEL" | "TUNNEL_DISCONNECTED" | "LLM_ERROR" | "TIMEOUT";
+      code?:
+        | "NO_TUNNEL"
+        | "TUNNEL_DISCONNECTED"
+        | "LLM_ERROR"
+        | "TIMEOUT"
+        | "RATE_LIMITED";
     }
   | { type: "heartbeat_ack" };
 

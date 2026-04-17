@@ -22,6 +22,7 @@ import { createReadStream, statSync, existsSync } from "node:fs";
 import { extname, join, normalize, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import { NIT_SERVER_VERSION } from "@nit/shared";
 import {
   handleTunnelConnection,
   handleControlConnection,
@@ -29,7 +30,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// ─── Build presence check ─────────────────────────────────────────
+// ─── Build presence check ──────────────────────────────────────────────
 //
 // Без `npm run build` файла build/server/index.js нет, и динамический
 // импорт ниже падает с криптической ошибкой ERR_MODULE_NOT_FOUND.
@@ -59,7 +60,7 @@ const requestListener = createRequestListener({
   mode: NODE_ENV,
 });
 
-// ─── Static file middleware ───────────────────────────────────────
+// ─── Static file middleware ─────────────────────────────────────────────
 //
 // createRequestListener НЕ умеет раздавать статику — он только SSR.
 // Без этого middleware hashed-бандлы (/assets/root-*.css, /assets/*.js)
@@ -179,7 +180,7 @@ httpServer.on("upgrade", (req, socket, head) => {
 
 httpServer.listen(PORT, HOST, () => {
   console.log("┌─────────────────────────────────────────────────┐");
-  console.log("│  NIT Builder v2.0.0-alpha.0                     │");
+  console.log(`│  NIT Builder v${NIT_SERVER_VERSION}`.padEnd(50) + "│");
   console.log("│  HTTP + WebSocket server                        │");
   console.log("├─────────────────────────────────────────────────┤");
   console.log(`│  Mode:       ${NODE_ENV}`);

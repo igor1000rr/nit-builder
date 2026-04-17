@@ -25,10 +25,18 @@ export default function Download() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   function copy(text: string, key: string) {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      setTimeout(() => setCopied(null), 2000);
-    });
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(key);
+        setTimeout(() => setCopied(null), 2000);
+      })
+      .catch(() => {
+        // Clipboard API требует secure context (HTTPS) — если не сработал,
+        // просто меняем метку на ошибочную, юзер копирует вручную.
+        setCopied(`${key}-failed`);
+        setTimeout(() => setCopied(null), 2000);
+      });
   }
 
   return (
@@ -276,7 +284,7 @@ npm run dev -- \\
   );
 }
 
-/* ─── Helper sub-components ───────────────────────────────── */
+/* ─── Helper sub-components ───────────────────────────── */
 
 function Section({
   label,

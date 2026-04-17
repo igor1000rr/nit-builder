@@ -81,10 +81,24 @@ export default function Register() {
 
   function copyToken() {
     if (!tunnelToken) return;
-    navigator.clipboard.writeText(tunnelToken).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard
+      .writeText(tunnelToken)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // Fallback для HTTP / старых браузеров где Clipboard API недоступен:
+        // выделяем текст в инпуте — юзер копирует вручную через Ctrl+C.
+        const input = document.querySelector<HTMLInputElement>(
+          'input[value][readonly]',
+        );
+        if (input) {
+          input.focus();
+          input.select();
+        }
+        setError("Скопируй вручную (Ctrl+C) — буфер обмена недоступен");
+      });
   }
 
   return (

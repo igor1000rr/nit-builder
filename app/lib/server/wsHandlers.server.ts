@@ -10,6 +10,7 @@ import type { WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import {
   PROTOCOL_VERSION,
+  NIT_SERVER_VERSION,
   type TunnelToServer,
   type ServerToTunnel,
   type BrowserToServer,
@@ -38,7 +39,7 @@ import {
 } from "./appwrite.server";
 import { parseSessionCookie, verifySessionToken } from "./sessionCookie.server";
 
-const SERVER_VERSION = "2.0.0-alpha.0" as const;
+const SERVER_VERSION = NIT_SERVER_VERSION;
 
 // ─── WebSocket keepalive ──────────────────────────────────────────
 //
@@ -391,11 +392,17 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
         });
 
         if (!routed) {
+          // routeRequest возвращает false либо если нет туннеля, либо если
+          // юзер упёрся в concurrent-cap. Различаем через hasTunnelForUser
+          // чтобы юзеру сказали понятную ошибку.
+          const hasTunnel = hasTunnelForUser(authed.userId);
           send({
             type: "generate_error",
             requestId: msg.requestId,
-            error: "No tunnel connected. Install NIT Tunnel on a device with a GPU.",
-            code: "NO_TUNNEL",
+            error: hasTunnel
+              ? "Слишком много параллельных генераций. Дождись завершения текущих."
+              : "No tunnel connected. Install NIT Tunnel on a device with a GPU.",
+            code: hasTunnel ? "RATE_LIMITED" : "NO_TUNNEL",
           });
           return;
         }

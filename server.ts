@@ -148,7 +148,19 @@ function handleHttp(req: IncomingMessage, res: ServerResponse): void {
     if (tryServeFile(PUBLIC_DIR, pathname, res, false)) return;
   }
 
-  // 3. Fallback — React Router SSR
+  // 3. Прокидываем remote IP socket'а в заголовок чтобы rateLimit мог
+  //    делать trust-proxy whitelist. Web Request API не даёт доступ к
+  //    socket.remoteAddress, так что пихаем через служебный заголовок.
+  //    Клиент этот заголовок подделать не может — мы его всегда
+  //    перезаписываем здесь.
+  const remoteAddr = req.socket.remoteAddress;
+  if (remoteAddr) {
+    req.headers["x-request-remote-ip"] = remoteAddr;
+  } else {
+    delete req.headers["x-request-remote-ip"];
+  }
+
+  // 4. Fallback — React Router SSR
   requestListener(req, res);
 }
 

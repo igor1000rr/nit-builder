@@ -5,6 +5,7 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isAppwriteConfigured, consumeGuestLimit } from "~/lib/server/appwrite.server";
+import { getAuth } from "~/lib/server/requireAuth.server";
 import { logger } from "~/lib/utils/logger";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -53,7 +54,7 @@ function isValidBearerToken(authHeader: string | null): boolean {
   return safeCompare(token, secret) || safeCompare(token, expected);
 }
 
-// ─── CSRF ────────────────────────────────────────────
+// ─── CSRF ──────────────────────────────────────────
 export function checkCsrf(request: Request): Response | null {
   if (SAFE_METHODS.has(request.method)) return null;
 
@@ -87,7 +88,7 @@ export function checkCsrf(request: Request): Response | null {
   return null;
 }
 
-// ─── Auth ────────────────────────────────────────────
+// ─── Auth ──────────────────────────────────────────
 export function requireAuth(request: Request): Response | null {
   const csrf = checkCsrf(request);
   if (csrf) return csrf;
@@ -105,14 +106,37 @@ export function requireAuth(request: Request): Response | null {
 }
 
 /**
- * Пропускает гостей. Для MVP hosts всегда гость = true, если secret не задан.
+ * Пропускает гостей. Async, потому что теперь проверяет Appwrite session cookie
+ * в первую очередь через `getAuth` — раньше опирались только на legacy
+ * NIT_API_SECRET cookie, и залогиненные через /api/auth/login юзеры считались
+ * гостями (их cookie — Appwrite-формат, старый requireAuth его не признавал).
+ *
+ * Порядок проверки:
+ *   1. Appwrite session cookie (новая система, primary)
+ *   2. NIT_API_SECRET bearer/cookie (legacy, fallback для API-юзеров)
+ *   3. Иначе — гость
  */
-export function authOrGuest(request: Request): { isGuest: boolean; csrfError?: Response } {
+export async function authOrGuest(
+  request: Request,
+): Promise<{ isGuest: boolean; userId?: string; csrfError?: Response }> {
   const csrf = checkCsrf(request);
   if (csrf) return { isGuest: false, csrfError: csrf };
 
-  const result = requireAuth(request);
-  return { isGuest: result !== null };
+  // 1. Appwrite session cookie — primary auth path
+  try {
+    const user = await getAuth(request);
+    if (user) return { isGuest: false, userId: user.userId };
+  } catch {
+    // getAuth ходит в Appwrite за деталями юзера — если Appwrite упал,
+    // не роняем запрос, а пытаемся через legacy / пропускаем как гостя.
+  }
+
+  // 2. Legacy NIT_API_SECRET (bearer или cookie)
+  const legacyResult = requireAuth(request);
+  if (legacyResult === null) return { isGuest: false };
+
+  // 3. Гость
+  return { isGuest: true };
 }
 
 export function buildAuthCookie(): string | null {
@@ -134,7 +158,7 @@ export function isAuthEnabled(): boolean {
   return getSecret() !== null;
 }
 
-// ─── Guest limit (by IP) ─────────────────────────────
+// ─── Guest limit (by IP) ────────────────────────────
 //
 // Стратегия: Appwrite-first (persistent через PM2 reload), in-memory fallback
 // если Appwrite не настроен ИЛИ упал. Fallback fail-open — лучше пропустить

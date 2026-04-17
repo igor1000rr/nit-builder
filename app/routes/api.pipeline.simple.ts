@@ -39,7 +39,7 @@ function startPing(controller: ReadableStreamDefaultController, enc: TextEncoder
 }
 
 export async function action({ request }: { request: Request }) {
-  const { isGuest, csrfError } = authOrGuest(request);
+  const { isGuest, csrfError } = await authOrGuest(request);
   if (csrfError) return csrfError;
 
   if (isGuest) {
@@ -52,7 +52,14 @@ export async function action({ request }: { request: Request }) {
     }
   }
 
-  const rate = checkRateLimit(request, { maxRequests: isGuest ? 5 : 30, windowMs: 60_000, scope: "simple" });
+  // Rate limit: 5 rpm для гостей, 30 rpm для залогиненных. Раньше все шли
+  // как гости (authOrGuest был sync и не знал про Appwrite) — залогиненные
+  // упирались в 5 rpm при HTTP fallback когда их туннель был offline.
+  const rate = checkRateLimit(request, {
+    maxRequests: isGuest ? 5 : 30,
+    windowMs: 60_000,
+    scope: "simple",
+  });
   if (!rate.allowed) {
     const retry = rate.retryAfterMs ? Math.ceil(rate.retryAfterMs / 1000) : 60;
     return Response.json({ error: "Too many requests", retryAfter: retry }, {

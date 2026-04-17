@@ -6,7 +6,7 @@
  *   projectId: 69ab07130011752aae12
  *
  * Collections (in database `nit_builder`):
- * - nit_users        → extends Appwrite users with tunnelTokenHash, preferences
+ * - nit_users        → extends Appwrite users with tunnelTokenHash, sessionVersion, preferences
  * - nit_sites        → generated sites (replaces localStorage history)
  * - nit_generations  → audit log of each generation attempt
  * - nit_guest_limits → persistent per-IP guest quotas (replaces in-memory Map)
@@ -32,7 +32,7 @@ import {
 } from "node-appwrite";
 import { createHash } from "node:crypto";
 
-// ─── Config ─────────────────────────────────────────────
+// ─── Config ──────────────────────────────────
 
 export const APPWRITE_CONFIG = {
   endpoint: process.env.APPWRITE_ENDPOINT ?? "https://appwrite.vibecoding.by/v1",
@@ -50,7 +50,7 @@ export function isAppwriteConfigured(): boolean {
   return !!process.env.APPWRITE_API_KEY;
 }
 
-// ─── Clients ────────────────────────────────────────────
+// ─── Clients ─────────────────────────────────
 
 /**
  * Admin client — uses API key with full permissions.
@@ -94,7 +94,7 @@ export function getAdminUsers(): Users {
   return new Users(getAdminClient());
 }
 
-// ─── Types for NIT Builder documents ────────────────────────
+// ─── Types for NIT Builder documents ────────────────────
 
 export type NitUser = Models.Document & {
   /** Appwrite user $id — we use the same ID */
@@ -107,6 +107,14 @@ export type NitUser = Models.Document & {
   tunnelTokenCreatedAt: string;
   /** Preferred LLM provider — only local tunnel supported */
   preferredProvider: "tunnel";
+  /**
+   * Session token revocation counter. При logout-all или password change
+   * bumpSessionVersion() инкрементирует это поле — все существующие
+   * токены (с меньшим version) мгновенно становятся невалидны.
+   * Отсутствует у legacy-юзеров до миграции Appwrite-коллекции — в этом
+   * случае рассматривается как 0.
+   */
+  sessionVersion?: number;
   /** Encrypted user-provided API keys (JSON string) — legacy, unused */
   apiKeysJson?: string;
 };
@@ -137,7 +145,7 @@ export type NitGuestLimit = Models.Document & {
   resetAt: string;
 };
 
-// ─── Session operations ───────────────────────────────────
+// ─── Session operations ────────────────────────────────
 
 /**
  * Create an Appwrite session from email+password.
@@ -162,9 +170,6 @@ export async function createEmailSession(
   const token = await users.createToken(user.$id, 64, 900); // 15 min TTL
 
   // Verify password by creating a session via account API
-  // NOTE: Appwrite server SDK can't directly verify passwords. The standard pattern
-  // for server-side email+password login is to use account.createEmailPasswordSession
-  // on a client with no auth, then capture the response cookies/secret.
   const sessionClient = new Client()
     .setEndpoint(APPWRITE_CONFIG.endpoint)
     .setProject(APPWRITE_CONFIG.projectId);
@@ -247,7 +252,101 @@ export async function getNitUser(userId: string): Promise<NitUser | null> {
   }
 }
 
-// ─── User operations ──────────────────────────────────────
+// ─── Session version revocation ──────────────────────────
+//
+// Счётчик который вовлекается в подпись session token'а. Бампаем
+// при logout-all или password change — все существующие токены на version
+// < current не проходят verify. См. sessionCookie.server.ts.
+
+/**
+ * Читает current sessionVersion для юзера. Если nit_users документ не
+ * существует (legacy user) или поле sessionVersion отсутствует (до
+ * миграции Appwrite коллекции) — возвращаем 0.
+ *
+ * При сетевой ошибке тоже возвращаем 0 (fail-open) — иначе каждая
+ * временная Appwrite-недоступность выкидывает всех юзеров. Revocation в
+ * этот момент не сработает, но это редкий edge-case по сравнению
+ * с "все клиенты разлогинены".
+ */
+export async function getUserSessionVersion(userId: string): Promise<number> {
+  try {
+    const db = getAdminDatabases();
+    const doc = await db.getDocument<NitUser>(
+      APPWRITE_CONFIG.databaseId,
+      APPWRITE_CONFIG.collections.users,
+      userId,
+    );
+    return typeof doc.sessionVersion === "number" ? doc.sessionVersion : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Инкрементирует sessionVersion юзера на 1. Возвращает новое значение.
+ *
+ * После вызова все существующие session-токены этого юзера
+ * перестают проходить verify (там version меньше чем current).
+ *
+ * Race note: read-modify-write не атомарен. Если два параллельных
+ * logout-all стартуют одновременно, могут дать один bump вместо двух —
+ * но функционально это эквивалентно: все токены всё равно инвалидируются.
+ *
+ * Если nit_users документа нет (legacy юзер) — создаём пустой с
+ * sessionVersion=1. Следующий login корректно заполнит остальные
+ * поля — но это edge-case, таких юзеров не должно быть в проде за пределами
+ * migration-периода.
+ */
+export async function bumpSessionVersion(userId: string): Promise<number> {
+  const db = getAdminDatabases();
+
+  let current = 0;
+  let docExists = false;
+  try {
+    const doc = await db.getDocument<NitUser>(
+      APPWRITE_CONFIG.databaseId,
+      APPWRITE_CONFIG.collections.users,
+      userId,
+    );
+    docExists = true;
+    current = typeof doc.sessionVersion === "number" ? doc.sessionVersion : 0;
+  } catch {
+    docExists = false;
+  }
+
+  const next = current + 1;
+
+  if (docExists) {
+    await db.updateDocument(
+      APPWRITE_CONFIG.databaseId,
+      APPWRITE_CONFIG.collections.users,
+      userId,
+      { sessionVersion: next },
+    );
+  } else {
+    // Legacy user без nit_users — создаём минимальный стуб с служебным
+    // полем. tunnel-зависимые поля подтянутся при следующей регенерации
+    // tunnel token'а — до этого юзер просто не сможет генерить сайты через туннель
+    // (как и было до bump).
+    await db.createDocument(
+      APPWRITE_CONFIG.databaseId,
+      APPWRITE_CONFIG.collections.users,
+      userId,
+      {
+        email: "",
+        tunnelTokenLookup: "",
+        tunnelTokenHash: "",
+        tunnelTokenCreatedAt: new Date(0).toISOString(),
+        preferredProvider: "tunnel",
+        sessionVersion: next,
+      } satisfies Omit<NitUser, keyof Models.Document>,
+    );
+  }
+
+  return next;
+}
+
+// ─── User operations ─────────────────────────────────
 
 /**
  * Register a new user with email+password. Creates both the Appwrite
@@ -275,13 +374,15 @@ export async function registerUser(params: {
   const tunnelTokenLookup = computeTokenLookup(tunnelToken);
   const tunnelTokenHash = await hashTunnelToken(tunnelToken);
 
-  // 3. Create nit_users document
+  // 3. Create nit_users document — с sessionVersion=0 сразу, чтобы logout-all
+  //    работал с первого логина без специальной миграции.
   const userDoc: Omit<NitUser, keyof Models.Document> = {
     email: params.email,
     tunnelTokenLookup,
     tunnelTokenHash,
     tunnelTokenCreatedAt: new Date().toISOString(),
     preferredProvider: "tunnel",
+    sessionVersion: 0,
   };
 
   await db.createDocument(
@@ -376,7 +477,7 @@ export async function regenerateTunnelToken(userId: string): Promise<string> {
   return newToken;
 }
 
-// ─── Site operations ──────────────────────────────────────
+// ─── Site operations ─────────────────────────────────
 
 export async function saveSite(params: {
   userId: string;
@@ -430,7 +531,7 @@ export async function deleteSite(userId: string, siteId: string): Promise<boolea
   }
 }
 
-// ─── Metric logging ───────────────────────────────────────
+// ─── Metric logging ─────────────────────────────────
 
 export async function logGeneration(
   params: Omit<NitGeneration, keyof Models.Document>,
@@ -448,7 +549,7 @@ export async function logGeneration(
   }
 }
 
-// ─── Guest IP quota (persistent) ─────────────────────────────
+// ─── Guest IP quota (persistent) ─────────────────────────
 
 /**
  * Хешируем IP перед использованием как docId — чтобы не светить сырые IP
@@ -468,14 +569,6 @@ export type GuestLimitDecision = {
 /**
  * Атомарная проверка-и-инкремент guest квоты по IP. Persistent: переживает
  * рестарт сервера и работает в multi-instance scaleup.
- *
- * Race condition note: Appwrite не даёт настоящую атомарную операцию
- * read-modify-write. Между getDocument и updateDocument теоретически
- * возможен +1 race. Для guest-rate-limit это допустимо: цена ошибки —
- * 1 лишний запрос на бесплатном тарифе.
- *
- * Бросает только при сетевых ошибках Appwrite (caller должен fall back на
- * in-memory или fail-open в зависимости от threat model).
  */
 export async function consumeGuestLimit(
   ip: string,
@@ -545,13 +638,7 @@ export async function consumeGuestLimit(
 }
 
 /**
- * Удалить все nit_guest_limits документы с resetAt < now. Без этого коллекция растёт
- * бесконечно (по документу на каждый уникальный IP-хэш который когда-либо посещал сайт).
- *
- * Вызывается вручную через admin endpoint или по cron (достаточно раз в сутки).
- * Возвращает сводку для логирования.
- *
- * Пакетный limit=100 (лимит Appwrite list API), обрабатывает до maxBatches пакетов за вызов.
+ * Удалить все nit_guest_limits документы с resetAt < now.
  */
 export async function cleanupExpiredGuestLimits(
   maxBatches: number = 10,
@@ -572,8 +659,6 @@ export async function cleanupExpiredGuestLimits(
     totalScanned += result.documents.length;
     if (result.documents.length === 0) break;
 
-    // Удаляем параллельно но ловим ошибки индивидуальных doc'ов (раса между
-    // параллельными cleanup-ранами допустима).
     const settled = await Promise.allSettled(
       result.documents.map((doc) =>
         db.deleteDocument(
@@ -586,7 +671,6 @@ export async function cleanupExpiredGuestLimits(
     totalDeleted += settled.filter((s) => s.status === "fulfilled").length;
     batches++;
 
-    // Если пакет вернул меньше лимита — больше ничего нет, выходим.
     if (result.documents.length < 100) break;
   }
 

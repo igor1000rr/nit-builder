@@ -1,9 +1,8 @@
 /**
  * Authentication middleware helper.
  *
- * Uses signed session tokens (HMAC) instead of Appwrite session secrets.
- * See sessionCookie.server.ts for the rationale (server SDK doesn't return
- * session secrets, so we sign our own).
+ * Uses signed session tokens (HMAC) с session-version revocation.
+ * См. sessionCookie.server.ts для деталей формата токена и revocation.
  *
  * Usage in loaders/actions:
  *   const user = await requireAuth(request);
@@ -13,7 +12,7 @@
  */
 
 import { parseSessionCookie, verifySessionToken } from "./sessionCookie.server";
-import { getUserById } from "./appwrite.server";
+import { getUserById, getUserSessionVersion } from "./appwrite.server";
 
 export type AuthenticatedUser = {
   userId: string;
@@ -28,6 +27,12 @@ export type AuthenticatedUser = {
  * 1. Parse cookie header for nit_session
  * 2. Verify HMAC signature + check not expired (cheap, no network)
  * 3. Look up user details by userId in Appwrite (one network call)
+ * 4. Compare token sessionVersion с current user sessionVersion — если
+ *    version в токене меньше чем текущая в БД, токен отозван (logout-all).
+ *
+ * Для legacy юзеров без nit_users документа или без sessionVersion поля,
+ * current version считаем 0 — legacy-токены (v1, без version в payload)
+ * проходят как version=0 и совпадают.
  *
  * If you need to call this multiple times in one request, cache the
  * result yourself — we don't memoize across calls.
@@ -37,11 +42,24 @@ export async function getAuth(request: Request): Promise<AuthenticatedUser | nul
   const token = parseSessionCookie(cookieHeader);
   if (!token) return null;
 
-  const userId = verifySessionToken(token);
-  if (!userId) return null;
+  const verified = verifySessionToken(token);
+  if (!verified) return null;
 
-  const user = await getUserById(userId);
+  // Два round-trip'а к Appwrite: один за email (admin Users API),
+  // второй за sessionVersion (nit_users Databases API). Не объединимы
+  // в один запрос потому что email в Appwrite accounts, а nit_users —
+  // наш кастомный document store. В будущем можно закэшировать
+  // sessionVersion на 30 секунд in-memory если нагрузка вырастет.
+  const [user, currentVersion] = await Promise.all([
+    getUserById(verified.userId),
+    getUserSessionVersion(verified.userId),
+  ]);
   if (!user) return null;
+
+  if (verified.sessionVersion < currentVersion) {
+    // Токен из допредыдущей эпохи — отозван через logout-all или password change.
+    return null;
+  }
 
   return user;
 }

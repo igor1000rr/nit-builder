@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { ActionFunctionArgs } from "react-router";
-import { createEmailSession, deleteSession } from "~/lib/server/appwrite.server";
+import {
+  createEmailSession,
+  deleteSession,
+  getUserSessionVersion,
+} from "~/lib/server/appwrite.server";
 import {
   buildSessionCookie,
   createSessionToken,
@@ -8,14 +12,14 @@ import {
 } from "~/lib/server/sessionCookie.server";
 import { checkRateLimit } from "~/lib/utils/rateLimit";
 
-// ─── Validation ──────────────────────────────────────────────────
+// ─── Validation ─────────────────────────────────
 
 const LoginSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(1).max(128),
 });
 
-// ─── Action ──────────────────────────────────────────────────────
+// ─── Action ────────────────────────────────────
 
 export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== "POST") {
@@ -67,13 +71,17 @@ export async function action({ request }: ActionFunctionArgs) {
     // createEmailSession создаёт Appwrite session чтобы проверить пароль.
     // Мы её не используем (своя cookie + JWT), поэтому удаляем сразу после
     // verify — иначе у юзера копятся мёртвые сессии в Appwrite (по одной
-    // на каждый login). Cleanup fire-and-forget: ответ юзеру не блокируем.
+    // на каждый login). Cleanup fire-and-forget.
     const { userId, secret } = await createEmailSession(email, password);
     void deleteSession(secret).catch((err: Error) => {
       console.warn("[api.auth.login] Failed to clean up Appwrite session:", err.message);
     });
 
-    const sessionToken = createSessionToken(userId);
+    // Читаем current sessionVersion чтобы embed'нуть её в токен.
+    // Без этого после logout-all свежий login сразу был бы отозван (version=0
+    // в новом токене < уже бампнутой current).
+    const sessionVersion = await getUserSessionVersion(userId);
+    const sessionToken = createSessionToken(userId, sessionVersion);
 
     return Response.json(
       { userId, email },

@@ -137,9 +137,12 @@ export function useControlSocket(options: Options) {
 
         if (!shouldReconnectRef.current) return;
 
-        // Exponential backoff reconnect
-        const delay = backoffRef.current;
-        backoffRef.current = Math.min(backoffRef.current * 2, MAX_BACKOFF_MS);
+        // Exponential backoff reconnect с jitter. Без jitter при падении
+        // сервера все клиенты коннектятся синхронно (thundering herd) —
+        // jitter 0.8..1.2 размазывает ре-коннекты во времени.
+        const base = backoffRef.current;
+        backoffRef.current = Math.min(base * 2, MAX_BACKOFF_MS);
+        const delay = Math.round(base * (0.8 + Math.random() * 0.4));
         reconnectTimerRef.current = window.setTimeout(() => {
           reconnectTimerRef.current = null;
           connect();
@@ -192,7 +195,7 @@ export function useControlSocket(options: Options) {
     };
   }, [options.enabled, connect]);
 
-  // ─── Public send methods ────────────────────────────────────────
+  // ─── Public send methods ────────────────────────────────────────────
 
   const sendGenerate = useCallback(
     (params: {

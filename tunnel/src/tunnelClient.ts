@@ -20,10 +20,10 @@ import type {
   ServerToTunnel,
   TunnelCapabilities,
 } from "@nit/shared";
-import { PROTOCOL_VERSION } from "@nit/shared";
+import { PROTOCOL_VERSION, NIT_TUNNEL_CLIENT_VERSION } from "@nit/shared";
 import { streamFromLmStudio, probeLmStudio } from "./lmStudioProxy.js";
 
-const CLIENT_VERSION = "0.1.0-alpha" as const;
+const CLIENT_VERSION = NIT_TUNNEL_CLIENT_VERSION;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const RECONNECT_INITIAL_MS = 5_000;
 const RECONNECT_MAX_MS = 60_000;
@@ -57,11 +57,21 @@ export async function runTunnel(config: TunnelConfig): Promise<void> {
   const log = makeLogger(config.verbose ?? false);
   let reconnectDelay = RECONNECT_INITIAL_MS;
   let shutdownRequested = false;
+  let activeWs: WebSocket | null = null;
 
+  // Graceful SIGINT: закрываем WS с правильным close-code 1000 и даём
+  // серверу возможность обработать unregisterTunnel. process.exit внутри
+  // handler'а раньше обрывал сокет без close frame — туннель висел на
+  // сервере до keepalive timeout (~60s).
   process.on("SIGINT", () => {
-    log.info("Shutting down tunnel...");
+    if (shutdownRequested) return;
     shutdownRequested = true;
-    process.exit(0);
+    log.info("Shutting down tunnel...");
+    if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+      activeWs.close(1000, "Client shutdown");
+    }
+    // Даём 2 секунды на graceful close — если не успели, выходим жёстко
+    setTimeout(() => process.exit(0), 2000).unref();
   });
 
   while (!shutdownRequested) {
@@ -72,8 +82,11 @@ export async function runTunnel(config: TunnelConfig): Promise<void> {
       if (!probe.available) {
         log.error(`LM Studio not reachable: ${probe.error}`);
         log.info("Make sure LM Studio is running and the local server is started.");
-        log.info(`Retrying in ${reconnectDelay / 1000}s...`);
-        await sleep(reconnectDelay);
+        const jittered = Math.round(
+          reconnectDelay * (0.8 + Math.random() * 0.4),
+        );
+        log.info(`Retrying in ${Math.round(jittered / 1000)}s...`);
+        await sleep(jittered);
         reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
         continue;
       }
@@ -81,17 +94,25 @@ export async function runTunnel(config: TunnelConfig): Promise<void> {
 
       // Step 2: connect to server
       log.info(`Connecting to ${config.serverUrl}...`);
-      await connectAndServe(config, probe.model ?? "unknown", log);
+      await connectAndServe(config, probe.model ?? "unknown", log, (ws) => {
+        activeWs = ws;
+      });
+      activeWs = null;
 
       // If connectAndServe returns normally, server closed gracefully
       reconnectDelay = RECONNECT_INITIAL_MS;
     } catch (err) {
+      activeWs = null;
       log.error(`Connection error: ${(err as Error).message}`);
     }
 
     if (!shutdownRequested) {
-      log.info(`Reconnecting in ${reconnectDelay / 1000}s...`);
-      await sleep(reconnectDelay);
+      // Jitter: 0.8..1.2× текущего backoff — против thundering herd при
+      // рестарте сервера, когда сотни клиентов пытаются переконнектиться
+      // в одну и ту же миллисекунду.
+      const jittered = Math.round(reconnectDelay * (0.8 + Math.random() * 0.4));
+      log.info(`Reconnecting in ${Math.round(jittered / 1000)}s...`);
+      await sleep(jittered);
       reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
     }
   }
@@ -101,9 +122,11 @@ async function connectAndServe(
   config: TunnelConfig,
   model: string,
   log: Logger,
+  onWs?: (ws: WebSocket) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(config.serverUrl);
+    onWs?.(ws);
 
     const capabilities: TunnelCapabilities = {
       runtime: "lmstudio_proxy",

@@ -170,9 +170,24 @@ const GUEST_DAILY = parseInt(process.env.GUEST_DAILY_LIMIT ?? "10", 10);
 const GUEST_WINDOW = 24 * 60 * 60 * 1000;
 
 function getIp(request: Request): string {
+  // Та же логика trust-proxy что и в rateLimit.ts: если TRUSTED_PROXY_IPS
+  // задан и запрос пришёл НЕ от доверенного прокси — игнорируем
+  // X-Forwarded-For / X-Real-IP и используем socket remote.
+  const remoteRaw = request.headers.get("x-request-remote-ip");
+  const remote = remoteRaw ? remoteRaw.trim().replace(/^::ffff:/, "") : null;
+
+  const trustedRaw = process.env.TRUSTED_PROXY_IPS?.trim();
+  if (trustedRaw && remote) {
+    const trusted = new Set(trustedRaw.split(",").map((s) => s.trim()).filter(Boolean));
+    if (!trusted.has(remote)) {
+      return remote;
+    }
+  }
+
   return (
     request.headers.get("x-real-ip") ??
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    remote ??
     "unknown"
   );
 }

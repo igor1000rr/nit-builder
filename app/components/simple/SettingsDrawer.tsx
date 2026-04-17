@@ -23,6 +23,7 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [loggingOutAll, setLoggingOutAll] = useState(false);
 
   // Reset regenerate flow when drawer closes
   useEffect(() => {
@@ -79,6 +80,26 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     await refetchAuth();
     onClose();
+  }
+
+  async function handleLogoutAll() {
+    // Необратимое действие — все сессии на всех устройствах будут закрыты.
+    // Юзер увидит logged-out state на этой вкладке (cookie почищена в ответе),
+    // остальные вкладки/устройства при следующем запросе к API получат 401.
+    if (!confirm("Выйти со всех устройств? Все активные сессии будут закрыты.")) {
+      return;
+    }
+    setLoggingOutAll(true);
+    try {
+      await fetch("/api/auth/logout-all", {
+        method: "POST",
+        credentials: "include",
+      });
+      await refetchAuth();
+      onClose();
+    } finally {
+      setLoggingOutAll(false);
+    }
   }
 
   if (!isOpen) return null;
@@ -210,6 +231,24 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
                     }}
                   >
                     Log out
+                  </button>
+                </div>
+                {/* Logout-all — под основным блоком, отдельная кнопка-ссылка */}
+                <div
+                  className="mt-3 pt-3 flex items-center justify-between"
+                  style={{ borderTop: "1px solid var(--line)" }}
+                >
+                  <span className="text-[10px]" style={{ color: "var(--muted-2)" }}>
+                    Если потерял устройство или думаешь, что cookie утекла
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleLogoutAll}
+                    disabled={loggingOutAll}
+                    className="text-[10px] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                    style={{ color: "var(--magenta)" }}
+                  >
+                    {loggingOutAll ? "..." : "→ Log out everywhere"}
                   </button>
                 </div>
               </div>

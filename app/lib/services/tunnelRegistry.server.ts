@@ -19,7 +19,7 @@ import type {
   PipelineStep,
 } from "@nit/shared";
 
-// ─── Types ────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────
 
 export type TunnelConnection = {
   /** Unique connection ID (not the same as userId — one user can have multiple tunnels) */
@@ -46,6 +46,8 @@ export type PendingRequest = {
   browserSessionId: string;
   tunnelConnectionId: string;
   startedAt: number;
+  /** Обновляется при каждом text/start/done — для stale-cleanup. */
+  lastActivityAt: number;
   accumulatedText: string;
   currentStep: PipelineStep;
   /** Template info set after template_selected event */
@@ -56,9 +58,23 @@ export type PendingRequest = {
   onError?: (error: string) => void;
 };
 
-// ─── State ───────────────────────────────────────────────────────
+// ─── Safety caps ─────────────────────────────────────────────────────────
+//
+// MAX_CONCURRENT_PER_USER: если юзер шлёт > N generate одновременно —
+// отказываем. Без этого можно DoS'ить собственный туннель (LM Studio
+// подавится N параллельных stream'ов).
+//
+// PENDING_TIMEOUT_MS: если туннель отправил response_start и замолчал
+// (LLM завис, gpu crash), pendingRequests висит пока не обнулится
+// close-frame'ом. За 5 минут без активности — failим запрос и чистим.
 
-// ─── Singleton state via globalThis ────────────────────────────────
+const MAX_CONCURRENT_PER_USER = 3;
+const PENDING_TIMEOUT_MS = 5 * 60_000;
+const PENDING_SWEEP_INTERVAL_MS = 30_000;
+
+// ─── State ────────────────────────────────────────────────────────────
+
+// ─── Singleton state via globalThis ───────────────────────────────────
 //
 // CRITICAL: This module gets loaded TWICE in production:
 //   1. Through tsx in server.ts (imports app/lib/server/wsHandlers.server.ts
@@ -115,7 +131,7 @@ const browsersByUser = _state.browsersByUser;
 const pendingRequests = _state.pendingRequests;
 const stats = _state.stats;
 
-// ─── Tunnel management ────────────────────────────────────────────
+// ─── Tunnel management ─────────────────────────────────────────────
 
 export function registerTunnel(conn: TunnelConnection): void {
   const existing = tunnels.get(conn.userId) ?? [];
@@ -187,7 +203,7 @@ export function updateHeartbeat(connectionId: string): void {
   }
 }
 
-// ─── Browser session management ───────────────────────────────────
+// ─── Browser session management ────────────────────────────────────────
 
 export function registerBrowser(session: BrowserSession): void {
   browsers.set(session.sessionId, session);
@@ -236,7 +252,7 @@ function broadcastTunnelStatus(userId: string): void {
   }
 }
 
-// ─── Request routing ──────────────────────────────────────────────
+// ─── Request routing ────────────────────────────────────────────────
 
 export type RouteRequestParams = {
   requestId: string;
@@ -250,18 +266,24 @@ export type RouteRequestParams = {
 
 /**
  * Route a generation request from a browser to the user's tunnel.
- * Returns false if no tunnel is available.
+ * Returns false if no tunnel is available or user hit concurrent cap.
  */
 export function routeRequest(params: RouteRequestParams): boolean {
+  // Cap: сколько одновременных generate в полёте у юзера.
+  const active = countPendingByUser(params.userId);
+  if (active >= MAX_CONCURRENT_PER_USER) return false;
+
   const tunnel = getTunnelForUser(params.userId);
   if (!tunnel) return false;
 
+  const now = Date.now();
   const pending: PendingRequest = {
     requestId: params.requestId,
     userId: params.userId,
     browserSessionId: params.browserSessionId,
     tunnelConnectionId: tunnel.connectionId,
-    startedAt: Date.now(),
+    startedAt: now,
+    lastActivityAt: now,
     accumulatedText: "",
     currentStep: "plan",
   };
@@ -285,6 +307,14 @@ export function routeRequest(params: RouteRequestParams): boolean {
     stats.totalRequestsFailed++;
     return false;
   }
+}
+
+function countPendingByUser(userId: string): number {
+  let n = 0;
+  for (const req of pendingRequests.values()) {
+    if (req.userId === userId) n++;
+  }
+  return n;
 }
 
 export function abortRequest(requestId: string): void {
@@ -313,7 +343,7 @@ function findTunnelByConnectionId(connectionId: string): TunnelConnection | null
   return null;
 }
 
-// ─── Tunnel response forwarding ───────────────────────────────────
+// ─── Tunnel response forwarding ──────────────────────────────────────
 
 /**
  * Called by tunnel WebSocket handler when it receives a response message.
@@ -329,6 +359,8 @@ export function handleTunnelResponse(
 ): void {
   const req = pendingRequests.get(requestId);
   if (!req) return; // browser already disconnected or aborted
+
+  req.lastActivityAt = Date.now();
 
   const browser = browsers.get(req.browserSessionId);
   if (!browser) {
@@ -408,7 +440,7 @@ export function setRequestTemplate(
   }
 }
 
-// ─── Utilities ────────────────────────────────────────────────────
+// ─── Utilities ──────────────────────────────────────────────────────────
 
 function sendToBrowser(ws: WebSocket, msg: ServerToBrowser): void {
   try {
@@ -439,3 +471,55 @@ export function resetRegistry(): void {
   stats.totalRequestsCompleted = 0;
   stats.totalRequestsFailed = 0;
 }
+
+// ─── Stale-pending sweeper ────────────────────────────────────────────
+//
+// Если туннель отвечает start'ом и потом затих (GPU crash, LLM deadlock,
+// OOM у клиента), запись в pendingRequests висит пока не сработает close
+// WS — а WS-close случится только когда сервер отрубит keepalive (минуты).
+// Явный sweeper по lastActivityAt делает поведение предсказуемым.
+//
+// Храним таймер в globalThis тоже — иначе при двойной загрузке модуля
+// (tsx + React Router build) запустится два sweeper'а.
+
+type SweeperState = { timer: NodeJS.Timeout | null };
+const SWEEPER_KEY = "__NIT_TUNNEL_REGISTRY_SWEEPER__";
+
+function ensureSweeper(): void {
+  const g = globalThis as unknown as Record<string, SweeperState | undefined>;
+  if (g[SWEEPER_KEY]?.timer) return;
+
+  const state: SweeperState = { timer: null };
+  state.timer = setInterval(() => {
+    const now = Date.now();
+    for (const [reqId, req] of pendingRequests.entries()) {
+      if (now - req.lastActivityAt <= PENDING_TIMEOUT_MS) continue;
+
+      const browser = browsers.get(req.browserSessionId);
+      if (browser) {
+        sendToBrowser(browser.ws, {
+          type: "generate_error",
+          requestId: reqId,
+          error: "Generation timed out — tunnel stopped responding",
+          code: "TUNNEL_DISCONNECTED",
+        });
+      }
+      pendingRequests.delete(reqId);
+      stats.totalRequestsFailed++;
+    }
+  }, PENDING_SWEEP_INTERVAL_MS);
+
+  // unref — не мешаем процессу завершиться
+  state.timer.unref?.();
+  g[SWEEPER_KEY] = state;
+
+  if (typeof process !== "undefined") {
+    const cleanup = () => {
+      if (state.timer) clearInterval(state.timer);
+    };
+    process.on?.("SIGTERM", cleanup);
+    process.on?.("SIGINT", cleanup);
+  }
+}
+
+ensureSweeper();

@@ -38,6 +38,7 @@ import {
   isAppwriteConfigured,
 } from "./appwrite.server";
 import { parseSessionCookie, verifySessionToken } from "./sessionCookie.server";
+import { inferTemplateFromPrompt } from "~/lib/services/templateKeywordSelector";
 
 const SERVER_VERSION = NIT_SERVER_VERSION;
 
@@ -379,13 +380,33 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       case "generate": {
         if (!authed) return;
 
-        // Build Coder-style prompt — for Phase A we stub with minimal template adaptation.
-        // Phase B will properly integrate with the existing orchestrator.
+        // Выбираем template по ключевым словам из промпта. Без этого
+        // туннель всегда получал хардкод "blank-landing" + generic prompt,
+        // и результат часто был невпопад (фотограф получал лендинг для
+        // кофейни и т.п.). keyword selector — дешёвый, detterministic
+        // fallback без embedding LLM на сервере.
+        const template = inferTemplateFromPrompt(msg.prompt);
+        const sectionsList = template.sections.join(", ");
+
+        const system = `Ты — опытный HTML-разработчик. Создай полноценный одностраничный HTML-сайт по описанию: "${msg.prompt}".
+
+Жанр сайта: ${template.name}. Рекомендуемые секции: ${sectionsList}.
+
+Требования:
+- Начни с <!DOCTYPE html> и заверши </html>
+- Tailwind CSS через CDN: <script src="https://cdn.tailwindcss.com"></script>
+- Alpine.js для интерактива (опционально): <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+- Адаптивная вёрстка (mobile-first)
+- Используй секции из списка выше, заполни реалистичным контентом на русском
+- Избегай placeholder'ов типа "Lorem ipsum" — пиши настоящий контент по теме
+
+Только HTML, без комментариев и объяснений.`;
+
         const routed = routeRequest({
           requestId: msg.requestId,
           userId: authed.userId,
           browserSessionId: sessionId,
-          system: `You are an HTML generator. Create a full HTML page for: "${msg.prompt}". Use Tailwind CDN and Alpine.js. Start with <!DOCTYPE html>.`,
+          system,
           prompt: msg.prompt,
           maxOutputTokens: 8000,
           temperature: 0.4,
@@ -407,8 +428,9 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
           return;
         }
 
-        // Phase A: hardcode template info, Phase B gets it from plan stage
-        setRequestTemplate(msg.requestId, "blank-landing", "Универсальный");
+        // Сохраняем template info чтобы фронт показал корректное имя
+        // в pipeline-индикаторе (02·TEMPLATE) и в истории сайтов.
+        setRequestTemplate(msg.requestId, template.id, template.name);
         break;
       }
 

@@ -19,7 +19,7 @@ import type {
   PipelineStep,
 } from "@nit/shared";
 
-// ─── Types ───────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────
 
 export type TunnelConnection = {
   /** Unique connection ID (not the same as userId — one user can have multiple tunnels) */
@@ -58,7 +58,7 @@ export type PendingRequest = {
   onError?: (error: string) => void;
 };
 
-// ─── Safety caps ─────────────────────────────────────────────────────────
+// ─── Safety caps ──────────────────────────────────────────────────
 //
 // MAX_CONCURRENT_PER_USER: если юзер шлёт > N generate одновременно —
 // отказываем. Без этого можно DoS'ить собственный туннель (LM Studio
@@ -72,9 +72,9 @@ const MAX_CONCURRENT_PER_USER = 3;
 const PENDING_TIMEOUT_MS = 5 * 60_000;
 const PENDING_SWEEP_INTERVAL_MS = 30_000;
 
-// ─── State ────────────────────────────────────────────────────────────
+// ─── State ───────────────────────────────────────────────────────
 
-// ─── Singleton state via globalThis ───────────────────────────────────
+// ─── Singleton state via globalThis ────────────────────────────────
 //
 // CRITICAL: This module gets loaded TWICE in production:
 //   1. Through tsx in server.ts (imports app/lib/server/wsHandlers.server.ts
@@ -131,7 +131,7 @@ const browsersByUser = _state.browsersByUser;
 const pendingRequests = _state.pendingRequests;
 const stats = _state.stats;
 
-// ─── Tunnel management ─────────────────────────────────────────────
+// ─── Tunnel management ────────────────────────────────────────────
 
 export function registerTunnel(conn: TunnelConnection): void {
   const existing = tunnels.get(conn.userId) ?? [];
@@ -179,8 +179,33 @@ export function unregisterTunnel(connectionId: string): void {
 export function getTunnelForUser(userId: string): TunnelConnection | null {
   const conns = tunnels.get(userId);
   if (!conns || conns.length === 0) return null;
-  // Simple strategy: return first connection (can add round-robin or health-based selection later)
-  return conns[0]!;
+  if (conns.length === 1) return conns[0]!;
+
+  // Least-busy strategy: считаем pending-requests per connection и выбираем
+  // туннель с минимальной нагрузкой. Раньше возвращали conns[0] всегда —
+  // если у юзера два туннеля (ноут + десктоп), весь трафик лил на первый,
+  // второй простаивал. При равном количестве pending'ов стабильно выбираем
+  // первый (детерминированно для тестов).
+  const pendingByTunnel = new Map<string, number>();
+  for (const req of pendingRequests.values()) {
+    if (req.userId !== userId) continue;
+    pendingByTunnel.set(
+      req.tunnelConnectionId,
+      (pendingByTunnel.get(req.tunnelConnectionId) ?? 0) + 1,
+    );
+  }
+
+  let best = conns[0]!;
+  let bestLoad = pendingByTunnel.get(best.connectionId) ?? 0;
+  for (let i = 1; i < conns.length; i++) {
+    const c = conns[i]!;
+    const load = pendingByTunnel.get(c.connectionId) ?? 0;
+    if (load < bestLoad) {
+      best = c;
+      bestLoad = load;
+    }
+  }
+  return best;
 }
 
 export function hasTunnelForUser(userId: string): boolean {
@@ -203,7 +228,7 @@ export function updateHeartbeat(connectionId: string): void {
   }
 }
 
-// ─── Browser session management ────────────────────────────────────────
+// ─── Browser session management ───────────────────────────────────
 
 export function registerBrowser(session: BrowserSession): void {
   browsers.set(session.sessionId, session);
@@ -252,7 +277,7 @@ function broadcastTunnelStatus(userId: string): void {
   }
 }
 
-// ─── Request routing ────────────────────────────────────────────────
+// ─── Request routing ──────────────────────────────────────────────
 
 export type RouteRequestParams = {
   requestId: string;
@@ -343,7 +368,7 @@ function findTunnelByConnectionId(connectionId: string): TunnelConnection | null
   return null;
 }
 
-// ─── Tunnel response forwarding ──────────────────────────────────────
+// ─── Tunnel response forwarding ───────────────────────────────────
 
 /**
  * Called by tunnel WebSocket handler when it receives a response message.
@@ -440,7 +465,7 @@ export function setRequestTemplate(
   }
 }
 
-// ─── Utilities ──────────────────────────────────────────────────────────
+// ─── Utilities ────────────────────────────────────────────────────
 
 function sendToBrowser(ws: WebSocket, msg: ServerToBrowser): void {
   try {
@@ -472,7 +497,7 @@ export function resetRegistry(): void {
   stats.totalRequestsFailed = 0;
 }
 
-// ─── Stale-pending sweeper ────────────────────────────────────────────
+// ─── Stale-pending sweeper ────────────────────────────────────────
 //
 // Если туннель отвечает start'ом и потом затих (GPU crash, LLM deadlock,
 // OOM у клиента), запись в pendingRequests висит пока не сработает close

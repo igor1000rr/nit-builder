@@ -5,8 +5,9 @@ import {
   regenerateTunnelToken,
   createEmailSession,
 } from "~/lib/server/appwrite.server";
+import { checkRateLimit } from "~/lib/utils/rateLimit";
 
-// ─── Validation ──────────────────────────────────────────────────
+// ─── Validation ─────────────────────────────────────────────────────
 // Require password re-entry for sensitive operation (regenerating token
 // invalidates all existing tunnel clients, so we want to confirm identity)
 
@@ -20,6 +21,29 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const user = await requireAuth(request);
+
+  // Rate limit по userId — защита от брутфорса пароля через этот эндпоинт.
+  // Регенерация редкая операция (раз в пару месяцев), 5/мин — более чем
+  // достаточно для легитимного использования.
+  const rl = checkRateLimit(request, {
+    scope: `regenerate-token:${user.userId}`,
+    windowMs: 60_000,
+    maxRequests: 5,
+  });
+  if (!rl.allowed) {
+    return Response.json(
+      {
+        error: "Too many attempts. Try again in a minute.",
+        retryAfterMs: rl.retryAfterMs,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((rl.retryAfterMs ?? 60_000) / 1000)),
+        },
+      },
+    );
+  }
 
   let body: unknown;
   try {

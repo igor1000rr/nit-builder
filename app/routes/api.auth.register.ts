@@ -6,8 +6,9 @@ import {
   createSessionToken,
   isProduction,
 } from "~/lib/server/sessionCookie.server";
+import { checkRateLimit } from "~/lib/utils/rateLimit";
 
-// ─── Validation ──────────────────────────────────────────────────
+// ─── Validation ─────────────────────────────────────────────────────
 
 const RegisterSchema = z.object({
   email: z.string().email({ message: "Неверный формат email" }).max(255),
@@ -18,11 +19,34 @@ const RegisterSchema = z.object({
   name: z.string().trim().max(100).optional(),
 });
 
-// ─── Action ──────────────────────────────────────────────────────
+// ─── Action ───────────────────────────────────────────────────────
 
 export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  // Rate limit by IP — spam / abuse protection. 5/мин достаточно для
+  // легитимной регистрации и режет автоматические атаки которые могут
+  // забить Appwrite мусорными юзерами.
+  const rl = checkRateLimit(request, {
+    scope: "register",
+    windowMs: 60_000,
+    maxRequests: 5,
+  });
+  if (!rl.allowed) {
+    return Response.json(
+      {
+        error: "Too many registration attempts. Try again in a minute.",
+        retryAfterMs: rl.retryAfterMs,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((rl.retryAfterMs ?? 60_000) / 1000)),
+        },
+      },
+    );
   }
 
   let body: unknown;

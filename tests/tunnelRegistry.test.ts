@@ -114,6 +114,34 @@ describe("tunnelRegistry", () => {
       expect(getTunnelForUser("alice")?.connectionId).toBe("t2");
     });
 
+    it("выбирает least-busy туннель когда у юзера несколько", () => {
+      const browser = makeBrowser("alice", "b-lb");
+      registerBrowser(browser.session);
+
+      const { conn: c1 } = makeTunnel("alice", "t-busy");
+      const { conn: c2 } = makeTunnel("alice", "t-idle");
+      registerTunnel(c1);
+      registerTunnel(c2);
+
+      // Забиваем первый туннель одним in-flight запросом. routeRequest
+      // сам вызовет getTunnelForUser — поскольку pending=0 на обоих,
+      // возьмёт c1 (стабильно первый).
+      routeRequest({
+        requestId: "req-busy-1",
+        userId: "alice",
+        browserSessionId: "b-lb",
+        system: "s",
+        prompt: "p1",
+        maxOutputTokens: 100,
+        temperature: 0.4,
+      });
+
+      // Теперь у c1 pending=1, у c2 pending=0. getTunnelForUser должен
+      // вернуть c2 (least-busy).
+      const next = getTunnelForUser("alice");
+      expect(next?.connectionId).toBe("t-idle");
+    });
+
     it("updates heartbeat timestamp", () => {
       const { conn } = makeTunnel("alice", "t-hb");
       const before = conn.lastHeartbeat;

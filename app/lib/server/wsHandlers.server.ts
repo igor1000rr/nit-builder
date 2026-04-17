@@ -2,8 +2,6 @@
  * WebSocket connection handlers for /api/tunnel and /api/control.
  *
  * Called from the custom server.js during HTTP upgrade routing.
- * Kept in app/lib/server/ so they get compiled with the rest of the
- * app and can use `~/` imports and Zod schemas.
  */
 
 import type { WebSocket } from "ws";
@@ -38,21 +36,11 @@ import {
   isAppwriteConfigured,
 } from "./appwrite.server";
 import { parseSessionCookie, verifySessionToken } from "./sessionCookie.server";
-import { inferTemplateFromPrompt } from "~/lib/services/templateKeywordSelector";
+import { analyzePrompt, buildEnrichedSystemPrompt } from "~/lib/services/promptAnalyzer";
 
 const SERVER_VERSION = NIT_SERVER_VERSION;
 
 // ─── WebSocket keepalive ──────────────────────────────────────────
-//
-// Nginx / любые intermediate прокси рубят WS-соединение если через него
-// нет трафика ~60с. Client-side heartbeat недостаточно надёжен: он идёт
-// в один конец (client → server), и если где-то по дороге буферизация —
-// ping всё равно может не пройти сквозь proxy вовремя.
-//
-// Правильный фикс: server-side WebSocket-level ping каждые 30с
-// + отслеживание pong через флаг isAlive. Если между двумя ping'ами
-// pong не пришёл — соединение мертво, принудительно terminate.
-// Браузер/клиент тогда увидит close и переподключится.
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 
@@ -89,12 +77,8 @@ function installKeepalive(ws: WebSocket, label: string): () => void {
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────
-// Phase B.3: real Appwrite auth, with dev-token fallback when APPWRITE_API_KEY
-// is not set (makes local E2E testing possible without a live Appwrite).
 
 async function validateTunnelToken(token: string): Promise<{ userId: string } | null> {
-  // Dev fallback: if Appwrite is not configured, allow a hardcoded env token.
-  // This is ONLY for local development and CI smoke tests.
   if (!isAppwriteConfigured()) {
     const devToken = process.env.NIT_DEV_TUNNEL_TOKEN;
     if (devToken && token === devToken) {
@@ -102,15 +86,12 @@ async function validateTunnelToken(token: string): Promise<{ userId: string } | 
     }
     return null;
   }
-
-  // Production path: Appwrite lookup with HMAC index + argon2 verify
   return findUserByTunnelToken(token);
 }
 
 async function validateBrowserSession(
   token: string,
 ): Promise<{ userId: string; email: string } | null> {
-  // Dev fallback
   if (!isAppwriteConfigured()) {
     if (token === "dev-session") {
       return { userId: "dev-user", email: "dev@local" };
@@ -118,11 +99,16 @@ async function validateBrowserSession(
     return null;
   }
 
-  // Production: verify HMAC signature, then look up user by id
-  const userId = verifySessionToken(token);
-  if (!userId) return null;
+  // verifySessionToken после коммита session-version revocation возвращает
+  // объект { userId, sessionVersion }, а не просто string. Достаём userId.
+  // Примечание: здесь мы НЕ проверяем sessionVersion vs current — WS
+  // auth происходит один раз при upgrade, и revocation проявится при
+  // следующем WS-реконнекте (юзер будет выкинут когда tunnel_status
+  // или heartbeat приходит и session cookie уже невалидна).
+  const verified = verifySessionToken(token);
+  if (!verified) return null;
 
-  return getUserById(userId);
+  return getUserById(verified.userId);
 }
 
 // ─── Tunnel handler (desktop client → server) ────────────────────
@@ -149,7 +135,6 @@ export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): voi
     ws.close(4000, message);
   };
 
-  // Auth timeout — must send hello within 5 seconds
   const authTimer = setTimeout(() => {
     if (!authed) {
       console.log("[tunnel] Auth timeout, closing");
@@ -181,7 +166,6 @@ export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): voi
           return;
         }
 
-        // Async auth — must be wrapped since ws.on("message") is sync
         const helloMsg = msg;
         void (async () => {
           const user = await validateTunnelToken(helloMsg.token);
@@ -190,7 +174,6 @@ export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): voi
             return;
           }
 
-          // Check if auth completed too late (timeout fired)
           if (authed) return;
 
           clearTimeout(authTimer);
@@ -288,9 +271,6 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
     }
   }, 5_000);
 
-  // Try to auto-authenticate from cookie header sent during WebSocket upgrade.
-  // This is the primary auth path — browser sends session cookie with upgrade
-  // request (same-origin), and we verify the HMAC signature locally.
   void (async () => {
     const cookieHeader = req.headers.cookie ?? null;
     const token = parseSessionCookie(cookieHeader);
@@ -311,7 +291,7 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       return;
     }
 
-    if (authed) return; // race: auth message from client arrived first
+    if (authed) return;
     clearTimeout(authTimer);
     authed = {
       sessionId,
@@ -351,7 +331,7 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
             ws.close(4001, "Auth failed");
             return;
           }
-          if (authed) return; // race: timeout may have fired
+          if (authed) return;
 
           clearTimeout(authTimer);
 
@@ -380,27 +360,12 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       case "generate": {
         if (!authed) return;
 
-        // Выбираем template по ключевым словам из промпта. Без этого
-        // туннель всегда получал хардкод "blank-landing" + generic prompt,
-        // и результат часто был невпопад (фотограф получал лендинг для
-        // кофейни и т.п.). keyword selector — дешёвый, detterministic
-        // fallback без embedding LLM на сервере.
-        const template = inferTemplateFromPrompt(msg.prompt);
-        const sectionsList = template.sections.join(", ");
-
-        const system = `Ты — опытный HTML-разработчик. Создай полноценный одностраничный HTML-сайт по описанию: "${msg.prompt}".
-
-Жанр сайта: ${template.name}. Рекомендуемые секции: ${sectionsList}.
-
-Требования:
-- Начни с <!DOCTYPE html> и заверши </html>
-- Tailwind CSS через CDN: <script src="https://cdn.tailwindcss.com"></script>
-- Alpine.js для интерактива (опционально): <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-- Адаптивная вёрстка (mobile-first)
-- Используй секции из списка выше, заполни реалистичным контентом на русском
-- Избегай placeholder'ов типа "Lorem ipsum" — пиши настоящий контент по теме
-
-Только HTML, без комментариев и объяснений.`;
+        // Полный анализ промпта: template, tone, colors, business name,
+        // sections, language, audience. Раньше передавали только template +
+        // generic prompt — Coder выбирал тон/палитру наобум. Теперь всё явно,
+        // результат воспроизводим и соответствует запросу.
+        const analysis = analyzePrompt(msg.prompt);
+        const system = buildEnrichedSystemPrompt(msg.prompt, analysis);
 
         const routed = routeRequest({
           requestId: msg.requestId,
@@ -413,9 +378,6 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
         });
 
         if (!routed) {
-          // routeRequest возвращает false либо если нет туннеля, либо если
-          // юзер упёрся в concurrent-cap. Различаем через hasTunnelForUser
-          // чтобы юзеру сказали понятную ошибку.
           const hasTunnel = hasTunnelForUser(authed.userId);
           send({
             type: "generate_error",
@@ -428,9 +390,7 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
           return;
         }
 
-        // Сохраняем template info чтобы фронт показал корректное имя
-        // в pipeline-индикаторе (02·TEMPLATE) и в истории сайтов.
-        setRequestTemplate(msg.requestId, template.id, template.name);
+        setRequestTemplate(msg.requestId, analysis.template.id, analysis.template.name);
         break;
       }
 

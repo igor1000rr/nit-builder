@@ -142,6 +142,8 @@ export default function Home() {
             msg = "Твой туннель не подключён. Запусти NIT Tunnel клиент.";
           } else if (event.code === "TUNNEL_DISCONNECTED") {
             msg = "Туннель отключился во время генерации. Попробуй снова.";
+          } else if (event.code === "RATE_LIMITED") {
+            msg = "Слишком много параллельных генераций. Дождись завершения.";
           }
           setChatMessages((prev) => [
             ...prev,
@@ -809,6 +811,21 @@ export default function Home() {
                   <span>+</span>
                   <span className="hidden sm:inline">New</span>
                 </button>
+                {html && (
+                  <button
+                    type="button"
+                    onClick={downloadHtml}
+                    className="px-3 py-1.5 text-[10px] tracking-[0.15em] uppercase transition flex items-center gap-2"
+                    style={{
+                      border: "1px solid var(--accent)",
+                      color: "var(--accent-glow)",
+                    }}
+                    title="Скачать HTML (⌘D)"
+                  >
+                    <span>↓</span>
+                    <span className="hidden sm:inline">Download</span>
+                  </button>
+                )}
                 {auth.status === "authenticated" && (
                   <button
                     type="button"

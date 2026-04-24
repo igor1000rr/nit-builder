@@ -130,6 +130,11 @@ export function App() {
         addLog(ev.content);
         break;
     }
+    // `addLog` намеренно не в deps — он сам useCallback с []-deps и
+    // стабилен между рендерами. Включение его в массив создаст лишнюю
+    // зависимость без эффекта, но порядок объявлений в файле сделает
+    // ESLint не видящим стабильности на момент анализа этого callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addLog = useCallback((message: string) => {

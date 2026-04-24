@@ -86,6 +86,9 @@ export function SettingsDrawer({ isOpen, onClose }: Props) {
     // Необратимое действие — все сессии на всех устройствах будут закрыты.
     // Юзер увидит logged-out state на этой вкладке (cookie почищена в ответе),
     // остальные вкладки/устройства при следующем запросе к API получат 401.
+    // Нативный confirm() уместен для destructive operation — юзер ожидает
+    // именно blocking confirmation, не toast/inline.
+    // eslint-disable-next-line no-alert -- intentional destructive confirmation
     if (!confirm("Выйти со всех устройств? Все активные сессии будут закрыты.")) {
       return;
     }

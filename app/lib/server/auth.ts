@@ -1,6 +1,19 @@
 /**
- * Минимальная auth для v1. Одноюзерный режим с optional NIT_API_SECRET.
- * Multi-user добавим в v1.1 вместе с "Мои сайты".
+ * CSRF-проверка + guest path + legacy NIT_API_SECRET fallback.
+ *
+ * Модуль исторически назывался "auth" и был основной auth-системой v1
+ * (single-user через NIT_API_SECRET). После Phase B real auth переехал в:
+ *   - sessionCookie.server.ts  — HMAC сессионные cookie (multi-user)
+ *   - requireAuth.server.ts    — getAuth/requireAuth для protected роутов
+ *   - appwrite.server.ts       — Appwrite интеграция
+ *
+ * Что осталось здесь:
+ *   - checkCsrf            — CSRF/Origin/Referer проверка для state-changing
+ *   - authOrGuest          — Appwrite-first → legacy → guest каскад
+ *   - checkGuestLimit      — IP rate-limit для незалогиненных
+ *   - legacyAuthCheck      — internal, NIT_API_SECRET cookie/Bearer проверка
+ *
+ * Дублей с requireAuth.server.ts больше нет.
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -10,7 +23,6 @@ import { logger } from "~/lib/utils/logger";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const COOKIE_NAME = "nit_session";
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
 function getSecret(): string | null {
   const s = process.env.NIT_API_SECRET?.trim();
@@ -73,7 +85,10 @@ export function checkCsrf(request: Request): Response | null {
   if (origin) {
     try {
       if (new URL(origin).host === host) return null;
-    } catch {}
+    } catch {
+      // Невалидный URL в Origin → fall through к 403. Подделанный или
+      // битый header — ровно та ситуация которую CSRF-проверка должна ловить.
+    }
     return Response.json({ error: "CSRF: origin mismatch" }, { status: 403 });
   }
 
@@ -81,15 +96,29 @@ export function checkCsrf(request: Request): Response | null {
   if (referer) {
     try {
       if (new URL(referer).host === host) return null;
-    } catch {}
+    } catch {
+      // Аналогично: невалидный Referer → 403.
+    }
     return Response.json({ error: "CSRF: referer mismatch" }, { status: 403 });
   }
 
   return null;
 }
 
-// ─── Auth ──────────────────────────────────────────
-export function requireAuth(request: Request): Response | null {
+// ─── Legacy NIT_API_SECRET auth ───────────────────────
+//
+// Эта функция — реликт v1 single-user режима когда auth был только через
+// NIT_API_SECRET cookie/bearer. После Phase B (Appwrite multi-user) основной
+// путь — getAuth() в requireAuth.server.ts. Здесь оставлен только для:
+// - API клиентов которые шлют Bearer NIT_API_SECRET
+// - Наследия одноюзерного self-hosted деплоя без Appwrite
+//
+// Раньше функция называлась `requireAuth` — конфликтовало с public
+// `requireAuth.server.ts:requireAuth` (async, Appwrite-aware) при чтении
+// кода и в IDE jump-to-definition. Переименовано в legacyAuthCheck.
+//
+// Используется ТОЛЬКО внутри authOrGuest как 2-й fallback.
+function legacyAuthCheck(request: Request): Response | null {
   const csrf = checkCsrf(request);
   if (csrf) return csrf;
 
@@ -132,31 +161,18 @@ export async function authOrGuest(
   }
 
   // 2. Legacy NIT_API_SECRET (bearer или cookie)
-  const legacyResult = requireAuth(request);
+  const legacyResult = legacyAuthCheck(request);
   if (legacyResult === null) return { isGuest: false };
 
   // 3. Гость
   return { isGuest: true };
 }
 
-export function buildAuthCookie(): string | null {
-  const secret = getSecret();
-  if (!secret) return null;
-  const token = deriveToken(secret);
-  const parts = [
-    `${COOKIE_NAME}=${token}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${COOKIE_MAX_AGE}`,
-  ];
-  if (process.env.NODE_ENV === "production") parts.push("Secure");
-  return parts.join("; ");
-}
-
-export function isAuthEnabled(): boolean {
-  return getSecret() !== null;
-}
+// Note: ранее здесь были экспортированные `buildAuthCookie` и `isAuthEnabled`
+// — оба не использовались нигде после Phase B (Appwrite-сессии готовят
+// cookie сами в sessionCookie.server.ts), а также unused константа
+// COOKIE_MAX_AGE. Удалены при post-audit cleanup; если когда-либо
+// понадобятся — восстановить из git history.
 
 // ─── Guest limit (by IP) ────────────────────────────
 //

@@ -136,7 +136,11 @@ function diffMetric(
   metric: string,
   before: number,
   after: number,
-  regressionThreshold: number,
+  // Threshold проверяется в diffSummaries после classification — здесь
+  // только raw delta. Сохраняем в сигнатуре чтобы вызовы оставались
+  // симметричными и при будущем добавлении per-metric threshold не
+  // пришлось менять call sites.
+  _regressionThreshold: number,
 ): SummaryDiffRow {
   const delta = Number((after - before).toFixed(4));
   const lowerBetter = LOWER_IS_BETTER.has(metric);

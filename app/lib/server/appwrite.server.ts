@@ -168,8 +168,11 @@ export async function createEmailSession(
   }
   const user = list.users[0]!;
 
-  // Create a custom token for this user (Appwrite "session tokens" API)
-  const token = await users.createToken(user.$id, 64, 900); // 15 min TTL
+  // Раньше здесь был `users.createToken(user.$id, 64, 900)` — реликт от
+  // ранней версии auth-флоу когда мы хотели использовать Appwrite session
+  // tokens API. Сейчас используем createEmailPasswordSession (ниже) —
+  // токен не нужен. user.$id всё ещё нужен для возврата userId.
+  void user;
 
   // Verify password by creating a session via account API
   const sessionClient = new Client()

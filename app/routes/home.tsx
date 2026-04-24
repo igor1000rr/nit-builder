@@ -4,7 +4,7 @@ import { TemplateGrid } from "~/components/simple/TemplateGrid";
 import { PolishChat } from "~/components/simple/PolishChat";
 import { HistoryPanel } from "~/components/simple/HistoryPanel";
 import { ToastContainer } from "~/components/simple/ToastContainer";
-import { parseSseStream } from "~/lib/utils/sseParser";
+import { runHttpPipeline } from "~/lib/services/pipelineHttpFallback";
 import { saveToHistory, type HistoryEntry } from "~/lib/stores/historyStore";
 import { saveRemoteSite } from "~/lib/stores/remoteHistoryStore";
 import { toast } from "~/lib/stores/toastStore";
@@ -14,7 +14,7 @@ import { useControlSocket } from "~/lib/hooks/useControlSocket";
 import { uuid } from "~/lib/utils/uuid";
 import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
 import { AuthBadge } from "~/components/simple/AuthBadge";
-import { GridBg, Orbs, Chip, NitButton, StatusDot, GlitchHeading, Particles, HorizontalParticles, ConicRays, Beams } from "~/components/nit";
+import { GridBg, Orbs, Chip, StatusDot, GlitchHeading, Particles, HorizontalParticles, ConicRays, Beams } from "~/components/nit";
 import { TerminalCodeCard } from "~/components/nit/TerminalCodeCard";
 
 type ViewMode = "welcome" | "generating" | "editing";
@@ -159,6 +159,13 @@ export default function Home() {
         }
       }
     },
+    // `html` намеренно не в deps — переcоздание handler'а на каждый
+    // setHtml() заставило бы useControlSocket отписываться/переподписываться
+    // на WebSocket events и терять in-flight генерации. Stale closure тут
+    // безопасен: используем только в `if (!html)` ветке для UX-fallback,
+    // и у юзера эта ветка отрабатывает в первую же error до получения html.
+    // Будет переписано через ref в P3 декомпозиции home.tsx.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [lastPrompt, scheduleIframeUpdate],
   );
 
@@ -213,82 +220,67 @@ export default function Home() {
         return; // Response handled via handleWsEvent
       }
 
-      // Fallback: HTTP streaming path (legacy v1)
+      // Fallback: HTTP streaming path (legacy v1).
+      // Логика SSE-парсинга и fetch-обвязки вынесена в runHttpPipeline —
+      // здесь только перевод его событий в локальный React-стейт.
       const ctrl = new AbortController();
       abortCtrlRef.current = ctrl;
 
-      let accumulated = "";
-      let localTemplateId = "";
-      let localTemplateName = "";
-      let chars = 0;
-
       try {
-        const res = await fetch("/api/pipeline/simple", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mode: "create",
-            projectId,
-            sessionId: sessionIdRef.current,
-            message: prompt,
-            providerId: selectedProvider ?? undefined,
-          }),
+        const result = await runHttpPipeline({
+          mode: "create",
+          projectId,
+          prompt,
+          sessionId: sessionIdRef.current,
+          providerId: selectedProvider ?? undefined,
           signal: ctrl.signal,
-        });
-
-        await parseSseStream(res, (event) => {
-          switch (event.type) {
-            case "session_init":
-              sessionIdRef.current = event.sessionId as string;
-              break;
-            case "plan_ready":
-              setCurrentStep("template");
-              break;
-            case "template_selected":
-              localTemplateId = event.templateId as string;
-              localTemplateName = event.templateName as string;
-              setTemplateName(localTemplateName);
-              setCurrentStep("template");
-              break;
-            case "step_start":
-              if (event.roleName === "Кодер") {
-                setCurrentStep("code");
-              }
-              break;
-            case "text":
-              accumulated += event.text as string;
-              chars = accumulated.length;
-              scheduleIframeUpdate(accumulated, chars);
-              break;
-            case "step_complete":
-              if (event.html) accumulated = event.html as string;
-              break;
-            case "error":
-              throw new Error((event.message as string) || "Неизвестная ошибка");
-          }
+          onEvent: (event) => {
+            switch (event.type) {
+              case "session_init":
+                sessionIdRef.current = event.sessionId;
+                break;
+              case "plan_ready":
+                setCurrentStep("template");
+                break;
+              case "template_selected":
+                setTemplateName(event.templateName);
+                setCurrentStep("template");
+                break;
+              case "step_start":
+                if (event.roleName === "Кодер") setCurrentStep("code");
+                break;
+              case "text_delta":
+                scheduleIframeUpdate(event.accumulated, event.accumulated.length);
+                break;
+              case "step_complete":
+              case "error":
+                // step_complete: дополнительно ничего — финальный html
+                //   придёт в result.finalHtml. error: throw уже произошёл
+                //   в runHttpPipeline, мы сюда не дойдём.
+                break;
+            }
+          },
         });
 
         setCurrentStep("done");
-        setHtml(accumulated);
+        setHtml(result.finalHtml);
         setStreamingHtml("");
-        setLastTemplateId(localTemplateId);
+        setLastTemplateId(result.templateId);
 
-        // Save to local history
-        if (accumulated && localTemplateId) {
+        // Save to local history (+ remote если authed)
+        if (result.finalHtml && result.templateId) {
           saveToHistory({
             prompt,
-            html: accumulated,
-            templateId: localTemplateId,
-            templateName: localTemplateName,
+            html: result.finalHtml,
+            templateId: result.templateId,
+            templateName: result.templateName,
           });
-          // Fire-and-forget remote save when authed
           if (auth.status === "authenticated") {
             void saveRemoteSite({
               prompt,
-              html: accumulated,
-              templateId: localTemplateId,
-              templateName: localTemplateName,
+              html: result.finalHtml,
+              templateId: result.templateId,
+              templateName: result.templateName,
             });
           }
           toast.success("Сайт создан и сохранён в истории");
@@ -338,44 +330,37 @@ export default function Home() {
         return;
       }
 
-      // Fallback: HTTP path
+      // Fallback: HTTP path. Та же runHttpPipeline что и в createSite —
+      // отличается только mode + что мы не трогаем templateId/templateName.
       const ctrl = new AbortController();
       abortCtrlRef.current = ctrl;
-      let accumulated = "";
 
       try {
-        const res = await fetch("/api/pipeline/simple", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mode: "polish",
-            projectId,
-            sessionId: sessionIdRef.current,
-            message: request,
-            providerId: selectedProvider ?? undefined,
-          }),
+        const result = await runHttpPipeline({
+          mode: "polish",
+          projectId,
+          prompt: request,
+          sessionId: sessionIdRef.current,
+          providerId: selectedProvider ?? undefined,
           signal: ctrl.signal,
+          onEvent: (event) => {
+            switch (event.type) {
+              case "session_init":
+                sessionIdRef.current = event.sessionId;
+                break;
+              case "text_delta":
+                scheduleIframeUpdate(event.accumulated, event.accumulated.length);
+                break;
+              // plan_ready/template_selected/step_start/step_complete/error
+              // — для polish либо не релевантны, либо обрабатываются через
+              // result.finalHtml ниже / throw в runHttpPipeline.
+              default:
+                break;
+            }
+          },
         });
 
-        await parseSseStream(res, (event) => {
-          switch (event.type) {
-            case "session_init":
-              sessionIdRef.current = event.sessionId as string;
-              break;
-            case "text":
-              accumulated += event.text as string;
-              scheduleIframeUpdate(accumulated, accumulated.length);
-              break;
-            case "step_complete":
-              if (event.html) accumulated = event.html as string;
-              break;
-            case "error":
-              throw new Error((event.message as string) || "Неизвестная ошибка");
-          }
-        });
-
-        setHtml(accumulated);
+        setHtml(result.finalHtml);
         setStreamingHtml("");
         setChatMessages((prev) => [...prev, { role: "assistant", text: "Готово ✨" }]);
         toast.success("Правки применены");

@@ -79,7 +79,6 @@ export async function* executeHtmlSimple(
   clearTruncation(memory.sessionId);
 
   let currentPlan: Plan | undefined;
-  let currentTemplateId: string | undefined;
   let planCachedFlag = false;
 
   yield {
@@ -131,7 +130,9 @@ export async function* executeHtmlSimple(
 
   const template = getTemplateById(currentPlan.suggested_template_id) ?? getFallbackTemplate();
   memory.templateId = template.id;
-  currentTemplateId = template.id;
+  // Раньше дублировался в local `let currentTemplateId` — после селекта
+  // template остаётся в том же скоупе и не пере-присваивается, дублёр
+  // удалён. Везде ниже используется напрямую template.id.
 
   yield { type: "template_selected", templateId: template.id, templateName: template.name };
   metrics.templateSelected(template.id);
@@ -164,7 +165,7 @@ export async function* executeHtmlSimple(
       durationMs: totalMs,
       userMessage: sanitized,
       plan: currentPlan,
-      templateId: currentTemplateId,
+      templateId: template.id,
       planCached: planCachedFlag,
       injectMethod: "skeleton",
       skeletonFillRatio: injection.fillRatio,
@@ -236,7 +237,7 @@ export async function* executeHtmlSimple(
         durationMs: Date.now() - startMs,
         userMessage: sanitized,
         plan: currentPlan,
-        templateId: currentTemplateId,
+        templateId: template.id,
         planCached: planCachedFlag,
         injectMethod: "coder",
         errorReason: "context_overflow",
@@ -290,7 +291,7 @@ export async function* executeHtmlSimple(
         mode: "create",
         userMessage: sanitized,
         plan: currentPlan,
-        templateId: currentTemplateId,
+        templateId: template.id,
         partialHtml: rawForTail,
         attempt: 0,
         providerId: provider.id,
@@ -309,7 +310,7 @@ export async function* executeHtmlSimple(
         durationMs: totalMs,
         userMessage: sanitized,
         plan: currentPlan,
-        templateId: currentTemplateId,
+        templateId: template.id,
         planCached: planCachedFlag,
         injectMethod: "coder",
         errorReason: "truncated",
@@ -338,7 +339,7 @@ export async function* executeHtmlSimple(
       durationMs: totalMs,
       userMessage: sanitized,
       plan: currentPlan,
-      templateId: currentTemplateId,
+      templateId: template.id,
       planCached: planCachedFlag,
       injectMethod: "coder",
     });
@@ -355,7 +356,7 @@ export async function* executeHtmlSimple(
       durationMs: Date.now() - startMs,
       userMessage: sanitized,
       plan: currentPlan,
-      templateId: currentTemplateId,
+      templateId: template.id,
       planCached: planCachedFlag,
       injectMethod: "coder",
       errorReason: `coder: ${(err as Error).message}`,

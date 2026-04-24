@@ -34,7 +34,12 @@ function sse(event: unknown): string {
 
 function startPing(controller: ReadableStreamDefaultController, enc: TextEncoder) {
   return setInterval(() => {
-    try { controller.enqueue(enc.encode(":ping\n\n")); } catch {}
+    try {
+      controller.enqueue(enc.encode(":ping\n\n"));
+    } catch {
+      // Контроллер закрылся — клиент отвалился. Heartbeat больше не нужен,
+      // следующий tick noop'нется. Полная очистка — clearInterval в finally.
+    }
   }, 15_000);
 }
 

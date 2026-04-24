@@ -187,7 +187,9 @@ export async function* polishSectionStream(params: {
   let finishReason = "unknown";
   try {
     finishReason = String((await result.finishReason) ?? "unknown");
-  } catch {}
+  } catch {
+    // Promise может реджектиться у некоторых провайдеров — оставляем "unknown".
+  }
 
   let usage = { prompt: 0, completion: 0 };
   try {
@@ -205,7 +207,9 @@ export async function* polishSectionStream(params: {
         completion: u.completionTokens ?? u.outputTokens ?? 0,
       };
     }
-  } catch {}
+  } catch {
+    // Usage опциональна — для self-hosted моделей часто не приходит.
+  }
 
   yield { type: "done", result: { rawText: raw, finishReason, usage } };
   logger.info(

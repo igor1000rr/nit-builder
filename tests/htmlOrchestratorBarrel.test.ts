@@ -52,7 +52,7 @@ describe("htmlOrchestrator barrel re-export", () => {
     // Этот тест прошёл бы typecheck stage до того как сюда дошёл.
     // Проверяем что тип принимает разные варианты union'а — это сигнал
     // что barrel правильно re-export'ит type из htmlOrchestrator.types.
-    const { } = await import("~/lib/services/htmlOrchestrator");
+    await import("~/lib/services/htmlOrchestrator");
     type Event = import("~/lib/services/htmlOrchestrator").PipelineEvent;
     const events: Event[] = [
       { type: "session_init", sessionId: "abc" },

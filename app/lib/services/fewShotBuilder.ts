@@ -263,7 +263,7 @@ export async function buildFewShotPlansAdaptive(
         if (!meta.plan) return "";
         const compact = formatPlanCompact(meta.plan);
         const scorePercent = (c.finalScore * 100).toFixed(0);
-        return `Пример ${i + 1} (релевантность ${scorePercent}%, запрос был: \"${meta.query ?? c.result.doc.text}\"):\n${compact}`;
+        return `Пример ${i + 1} (релевантность ${scorePercent}%, запрос был: "${meta.query ?? c.result.doc.text}"):\n${compact}`;
       })
       .filter(Boolean)
       .join("\n\n");

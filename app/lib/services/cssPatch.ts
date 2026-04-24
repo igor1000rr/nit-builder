@@ -45,7 +45,7 @@ const CSS_PATCHER_SYSTEM = `Ты — CSS-патчер. По запросу по�
 {"rules":[{"selector":"body","properties":{"background":"#1e3a8a","color":"#f8fafc"}}]}
 
 Запрос: "кнопки круглые и больше"
-{"rules":[{"selector":"button, .btn, a[role=\"button\"]","properties":{"border-radius":"9999px","padding":"14px 28px","font-size":"1.05rem"}}]}
+{"rules":[{"selector":"button, .btn, a[role='button']","properties":{"border-radius":"9999px","padding":"14px 28px","font-size":"1.05rem"}}]}
 
 Запрос: "в тёмную тему"
 {"rules":[{"selector":"body","properties":{"background":"#0f172a","color":"#e2e8f0"}},{"selector":"h1, h2, h3","properties":{"color":"#f1f5f9"}},{"selector":"section","properties":{"background":"transparent"}}]}`;

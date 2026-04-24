@@ -113,7 +113,7 @@ async function validateBrowserSession(
 
 // ─── Tunnel handler (desktop client → server) ────────────────────
 
-export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): void {
+export function handleTunnelConnection(ws: WebSocket, _req: IncomingMessage): void {
   const connectionId = randomUUID();
   let authed: TunnelConnection | null = null;
 

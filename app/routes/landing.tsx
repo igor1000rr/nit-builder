@@ -8,7 +8,6 @@ import {
   SectionLabel,
   GlitchHeading,
   Chip,
-  StatusDot,
   Marquee,
   Particles,
   HorizontalParticles,

@@ -7,16 +7,18 @@ import {
   readRecentFeedback,
   countFeedback,
   _resetFeedbackState,
+  _flushPendingWrites,
 } from "~/lib/services/feedbackStore";
 
 let tmpPath: string;
 
+// recordGeneration — fire-and-forget. После рефакторинга на write-queue
+// все pending записи можно дождаться детерминированно через
+// _flushPendingWrites — это устраняет flaky setTimeout(50ms) который
+// раньше иногда не успевал на медленных дисках / под нагрузкой и ломал
+// `readRecentFeedback ограничивает последними N` (порядок s10..s14).
 async function waitForWrites(): Promise<void> {
-  // recordGeneration — fire-and-forget. Параллельные fs.appendFile вызовы
-  // разрешаются только после того как event loop успеет обработать
-  // и микротаски и I/O callback'и. setImmediate в цикле этого недостаточно
-  // если приходится несколько fs round-trip-ов — даём 50ms реального времени.
-  await new Promise((r) => setTimeout(r, 50));
+  await _flushPendingWrites();
 }
 
 beforeEach(async () => {
@@ -158,8 +160,9 @@ describe("feedbackStore", () => {
         userMessage: `q${i}`,
       });
     }
-    // Для 15 параллельных fs.appendFile нужно больше времени
-    await new Promise((r) => setTimeout(r, 100));
+    // Детерминированно ждём очередь записей (раньше был хрупкий setTimeout
+    // 100ms — не успевал под нагрузкой → flaky CI).
+    await waitForWrites();
     const records = await readRecentFeedback(5);
     expect(records.length).toBe(5);
     // Последние 5 — это s10..s14

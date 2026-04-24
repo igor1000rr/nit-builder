@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { ActionFunctionArgs } from "react-router";
-import { registerUser, createEmailSession } from "~/lib/server/appwrite.server";
+import {
+  registerUser,
+  createEmailSession,
+  deleteSession,
+} from "~/lib/server/appwrite.server";
 import {
   buildSessionCookie,
   createSessionToken,
@@ -78,9 +82,17 @@ export async function action({ request }: ActionFunctionArgs) {
     });
 
     // 2. Verify the password works by attempting login (Appwrite needs this
-    //    to fully activate the user). We don't use the returned `secret` —
-    //    Appwrite's server SDK doesn't populate it.
-    await createEmailSession(email, password);
+    //    to fully activate the user). Сессия нам не нужна — мы используем свою
+    //    HMAC-cookie ниже. Без cleanup каждая регистрация копит мёртвую
+    //    Appwrite-сессию (тот же баг что fix'ил a3f225e в /api/auth/login).
+    //    Fire-and-forget delete: ошибка cleanup не должна ломать регистрацию.
+    const { secret } = await createEmailSession(email, password);
+    void deleteSession(secret).catch((err: Error) => {
+      console.warn(
+        "[api.auth.register] Failed to clean up Appwrite session:",
+        err.message,
+      );
+    });
 
     // 3. Sign our own session token (HMAC over userId)
     const sessionToken = createSessionToken(userId);

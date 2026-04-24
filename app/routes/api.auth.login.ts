@@ -26,7 +26,9 @@ export async function action({ request }: ActionFunctionArgs) {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
   }
 
-  // Rate limit by IP — brute force protection
+  // Rate limit by IP — защита от distributed brute force с одного хоста.
+  // Этот лимит первичен: даже если body невалиден или email отсутствует,
+  // запрос всё равно считается. 10/мин/IP блокирует script kiddie.
   const rl = checkRateLimit(request, {
     scope: "login",
     windowMs: 60_000,
@@ -66,6 +68,37 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const { email, password } = parsed.data;
+
+  // Per-email lockout: защита от credential stuffing когда атакующий
+  // распределяет попытки по сотням IP но фокусируется на одном аккаунте
+  // (typical leaked-creds attack). 5 попыток / 15 минут на конкретный email
+  // — достаточно для забывчивого юзера, режет реальные атаки.
+  //
+  // Ключ нормализованный (lowercase) — иначе "Foo@bar" и "foo@bar"
+  // считались бы разными аккаунтами и лимит не работал.
+  //
+  // На неcуществующий email лимит тоже накручивается — не утекает
+  // информация о существовании аккаунта (timing/error-message одинаковы).
+  const emailKey = email.trim().toLowerCase();
+  const emailRl = checkRateLimit(request, {
+    scope: `login-email:${emailKey}`,
+    windowMs: 15 * 60_000,
+    maxRequests: 5,
+  });
+  if (!emailRl.allowed) {
+    return Response.json(
+      {
+        error: "Too many failed attempts for this account. Try again in 15 minutes.",
+        retryAfterMs: emailRl.retryAfterMs,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((emailRl.retryAfterMs ?? 15 * 60_000) / 1000)),
+        },
+      },
+    );
+  }
 
   try {
     // createEmailSession создаёт Appwrite session чтобы проверить пароль.

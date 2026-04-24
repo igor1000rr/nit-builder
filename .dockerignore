@@ -6,12 +6,31 @@ build
 .github
 .env
 .env.local
+.env.production
 .vscode
 .idea
 *.log
 coverage
 tests
+
+# Tunnel / Tauri — отдельный bundle, не нужен в backend image.
+# Без этих исключений docker build тянет тяжёлый src-tauri/target/.
+tunnel
+shared/dist
+shared/node_modules
+
+# Docs / metadata — не нужны для runtime
 README*.md
+CHANGELOG.md
+CONTRIBUTING.md
 LICENSE
+docs
 Dockerfile
 docker-compose*.yml
+nixpacks.toml
+.prettierrc.json
+
+# Eval pipeline outputs / RAG store — runtime artifacts, не build inputs
+eval-reports
+nit-rag.jsonl
+.appwrite-migrated

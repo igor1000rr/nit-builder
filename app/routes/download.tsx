@@ -14,10 +14,15 @@ export const meta: MetaFunction = () => [
   },
 ];
 
+// На HTTPS-странице браузер блокирует ws:// (mixed content). Раньше
+// захардкоженный ws:// ломал инструкцию в production — генерировался URL
+// который не сработает. Берём protocol от текущей страницы как в
+// useControlSocket.ts. SSR-fallback тоже на wss:// — production deployment
+// всегда HTTPS.
 const SERVER_URL =
   typeof window !== "undefined"
-    ? `ws://${window.location.host}/api/tunnel`
-    : "ws://nit.vibecoding.by/api/tunnel";
+    ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/tunnel`
+    : "wss://nit.vibecoding.by/api/tunnel";
 
 export default function Download() {
   const auth = useAuth();

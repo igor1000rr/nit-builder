@@ -1,3 +1,4 @@
+import { NIT_SERVER_VERSION } from "@nit/shared";
 import { TEMPLATE_CATALOG } from "~/lib/config/htmlTemplatesCatalog";
 import { getStats } from "~/lib/services/tunnelRegistry.server";
 import { isAppwriteConfigured } from "~/lib/server/appwrite.server";
@@ -6,7 +7,10 @@ export async function loader() {
   const stats = getStats();
   return Response.json({
     status: "ok",
-    version: "2.0.0-alpha.0",
+    // Раньше был хардкод "2.0.0-alpha.0" — расходился с package.json и
+    // NIT_SERVER_VERSION (мониторинг показывал старую версию). Теперь
+    // одна точка правды — shared/src/version.ts.
+    version: NIT_SERVER_VERSION,
     mode: process.env.NODE_ENV ?? "production",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),

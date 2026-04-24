@@ -96,7 +96,17 @@ async function ensureDir(filePath: string): Promise<void> {
 
 /**
  * Записать запись в JSONL. Fire-and-forget: не ждём промис, ловим ошибки.
+ *
+ * Сериализуем запись через write-queue (chained promise). Без queue 15
+ * параллельных recordGeneration → 15 параллельных fs.appendFile к одному
+ * файлу. На macOS/Linux POSIX-семантика "atomic append" в большинстве
+ * случаев сохраняет порядок, но не гарантирует — отсюда был flaky тест
+ * `readRecentFeedback ограничивает последними N` (s10..s14 могли
+ * перемешаться). Queue делает порядок детерминированным и не блокирует
+ * вызывающий код.
  */
+let writeQueue: Promise<void> = Promise.resolve();
+
 export function recordGeneration(record: Omit<FeedbackRecord, "ts">): void {
   if (!isEnabled()) return;
 
@@ -106,9 +116,25 @@ export function recordGeneration(record: Omit<FeedbackRecord, "ts">): void {
     userMessage: record.userMessage.slice(0, MAX_MESSAGE_LEN),
   };
 
-  void writeRecord(full).catch((err: Error) => {
-    logger.warn(SCOPE, `Feedback write failed: ${err.message}`);
-  });
+  // Каждая новая запись цепляется в хвост очереди и игнорирует ошибки
+  // предыдущих (чтобы один сбой не блокировал последующие записи).
+  writeQueue = writeQueue
+    .catch(() => undefined)
+    .then(() => writeRecord(full))
+    .catch((err: Error) => {
+      logger.warn(SCOPE, `Feedback write failed: ${err.message}`);
+    });
+}
+
+/**
+ * Дождаться завершения всех pending записей. Только для тестов и
+ * graceful shutdown — production-код не должен звать (recordGeneration
+ * fire-and-forget by design).
+ *
+ * @internal
+ */
+export function _flushPendingWrites(): Promise<void> {
+  return writeQueue.catch(() => undefined);
 }
 
 async function writeRecord(record: FeedbackRecord): Promise<void> {
@@ -160,4 +186,5 @@ export async function countFeedback(): Promise<number> {
 /** Для тестов: сброс состояния между it(). */
 export function _resetFeedbackState(): void {
   ensureDirPromise = null;
+  writeQueue = Promise.resolve();
 }

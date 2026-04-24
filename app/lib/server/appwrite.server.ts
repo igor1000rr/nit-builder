@@ -115,8 +115,10 @@ export type NitUser = Models.Document & {
    * случае рассматривается как 0.
    */
   sessionVersion?: number;
-  /** Encrypted user-provided API keys (JSON string) — legacy, unused */
-  apiKeysJson?: string;
+  // Note: legacy `apiKeysJson` поле удалено из типа после v1 → v2 перехода.
+  // В существующих Appwrite-документах оно может ещё лежать как nullable
+  // string — но в коде не читается. Drop column из коллекции делать не
+  // обязательно: пустое поле не мешает и держит читаемость старых dump'ов.
 };
 
 export type NitSite = Models.Document & {
@@ -267,8 +269,35 @@ export async function getNitUser(userId: string): Promise<NitUser | null> {
  * временная Appwrite-недоступность выкидывает всех юзеров. Revocation в
  * этот момент не сработает, но это редкий edge-case по сравнению
  * с "все клиенты разлогинены".
+ *
+ * Кэш с TTL 30s. Hot-path: вызывается на каждом authed-запросе через
+ * getAuth(). Без кэша — 1 RTT в Appwrite на каждый клик / API hit.
+ * Trade-off: revocation через logout-all ощущается до 30s позже на других
+ * устройствах. Это приемлемо: атакующий со украденной cookie получит
+ * максимум 30 дополнительных секунд после bumpSessionVersion — за это время
+ * злоумышленник всё равно не успевает ничего критичного, а юзеры с десктопа
+ * + телефона не штрафуются double-RTT на каждом действии.
+ *
+ * Cache-bust происходит автоматически: bumpSessionVersion() инвалидирует
+ * запись для своего userId.
  */
+type VersionCacheEntry = { version: number; cachedAt: number };
+const SESSION_VERSION_CACHE_TTL_MS = 30_000;
+const SESSION_VERSION_CACHE_MAX = 10_000;
+const sessionVersionCache = new Map<string, VersionCacheEntry>();
+
+function invalidateSessionVersionCache(userId: string): void {
+  sessionVersionCache.delete(userId);
+}
+
 export async function getUserSessionVersion(userId: string): Promise<number> {
+  const now = Date.now();
+  const cached = sessionVersionCache.get(userId);
+  if (cached && now - cached.cachedAt < SESSION_VERSION_CACHE_TTL_MS) {
+    return cached.version;
+  }
+
+  let version = 0;
   try {
     const db = getAdminDatabases();
     const doc = await db.getDocument<NitUser>(
@@ -276,10 +305,27 @@ export async function getUserSessionVersion(userId: string): Promise<number> {
       APPWRITE_CONFIG.collections.users,
       userId,
     );
-    return typeof doc.sessionVersion === "number" ? doc.sessionVersion : 0;
+    version = typeof doc.sessionVersion === "number" ? doc.sessionVersion : 0;
   } catch {
+    // Fail-open: возвращаем 0, не кэшируем (чтобы при восстановлении
+    // Appwrite сразу взять реальную версию, а не ждать TTL).
     return 0;
   }
+
+  // Простая защита от роста — если карта переполнилась, сбрасываем самый
+  // старый ключ. Не LRU, но при rate < 10k уникальных юзеров за 30s этого
+  // достаточно.
+  if (sessionVersionCache.size >= SESSION_VERSION_CACHE_MAX) {
+    const oldest = sessionVersionCache.keys().next().value;
+    if (oldest) sessionVersionCache.delete(oldest);
+  }
+  sessionVersionCache.set(userId, { version, cachedAt: now });
+  return version;
+}
+
+/** @internal — для тестов: сброс кэша между it(). */
+export function _resetSessionVersionCache(): void {
+  sessionVersionCache.clear();
 }
 
 /**
@@ -342,6 +388,11 @@ export async function bumpSessionVersion(userId: string): Promise<number> {
       } satisfies Omit<NitUser, keyof Models.Document>,
     );
   }
+
+  // Инвалидируем кэш для этого юзера сразу — чтобы на этом же инстансе
+  // logout-all сработал мгновенно (без ожидания TTL). На других инстансах
+  // ревокация дойдёт через TTL, см. doc к getUserSessionVersion.
+  invalidateSessionVersionCache(userId);
 
   return next;
 }

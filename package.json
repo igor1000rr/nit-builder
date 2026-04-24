@@ -20,7 +20,6 @@
     "dev": "react-router dev",
     "build": "react-router build",
     "start": "tsx server.ts",
-    "start:legacy": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc --noEmit",
     "test": "vitest run",
     "format": "prettier --write 'app/**/*.{ts,tsx,css}'",
@@ -35,7 +34,6 @@
   "dependencies": {
     "@ai-sdk/openai": "^2.0.102",
     "@react-router/node": "^7.0.0",
-    "@react-router/serve": "^7.0.0",
     "ai": "^5.0.167",
     "argon2": "^0.44.0",
     "isbot": "^5.1.0",

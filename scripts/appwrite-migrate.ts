@@ -210,11 +210,10 @@ async function migrate(): Promise<void> {
     required: false,
     default: "tunnel",
   });
-  await ensureAttribute("nit_users", "apiKeysJson", {
-    kind: "string",
-    size: 4000,
-    required: false,
-  });
+  // Note: legacy attribute `apiKeysJson` создавался в v2.0.0-alpha,
+  // но никогда не использовался. Из миграции убран. На существующих
+  // Appwrite-инсталляциях поле сохраняется (idempotent ensureAttribute
+  // не удаляет атрибуты — это безопасно по дизайну).
   // Wait a moment for attributes to become available
   await sleep(2000);
   await ensureIndex("nit_users", "email_unique", "unique", ["email"]);

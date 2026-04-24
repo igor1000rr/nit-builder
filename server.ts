@@ -47,9 +47,18 @@ if (!existsSync(BUILD_PATH)) {
   process.exit(1);
 }
 
-// Dynamic import for build — avoids typecheck needing prior build
-// @ts-expect-error — build output exists at runtime after `npm run build`
-const build = await import("./build/server/index.js");
+// Dynamic import for build — avoids typecheck needing prior build.
+//
+// Раньше стоял `@ts-expect-error`, но он же ломал typecheck в обратном
+// направлении: после `npm run build` файл существует, ошибки нет, и
+// `@ts-expect-error` сам становится unused-директивой (TS2578). А без
+// директивы typecheck падает когда build ещё не запущен.
+//
+// Решение: динамический спецификатор через переменную — TS не пытается его
+// статически разрешить, fallback типа на unknown. Build presence проверяется
+// fail-fast выше (existsSync), так что runtime безопасен.
+const buildPath = "./build/server/index.js";
+const build = (await import(buildPath)) as unknown;
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";

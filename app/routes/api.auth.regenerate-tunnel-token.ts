@@ -4,6 +4,7 @@ import { requireAuth } from "~/lib/server/requireAuth.server";
 import {
   regenerateTunnelToken,
   createEmailSession,
+  deleteSession,
 } from "~/lib/server/appwrite.server";
 import { checkRateLimit } from "~/lib/utils/rateLimit";
 
@@ -57,9 +58,18 @@ export async function action({ request }: ActionFunctionArgs) {
     return Response.json({ error: "Password required" }, { status: 400 });
   }
 
-  // Verify password by attempting to create a new session
+  // Verify password by attempting to create a new session, then delete it.
+  // Без cleanup каждый regenerate-вызов копит мёртвую Appwrite-сессию у юзера —
+  // тот же баг что был в /api/auth/login (CHANGELOG fix a3f225e), здесь
+  // повторился. Fire-and-forget delete: ошибка cleanup не должна ломать flow.
   try {
-    await createEmailSession(user.email, parsed.data.password);
+    const { secret } = await createEmailSession(user.email, parsed.data.password);
+    void deleteSession(secret).catch((err: Error) => {
+      console.warn(
+        "[api.auth.regenerate-tunnel-token] Failed to clean up Appwrite session:",
+        err.message,
+      );
+    });
   } catch {
     return Response.json({ error: "Неверный пароль" }, { status: 401 });
   }

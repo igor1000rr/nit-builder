@@ -186,16 +186,31 @@ fi
 
 # ─── Verify startup ──────────────────────────────────────────────
 if [ "$DRY_RUN" = "0" ]; then
-  log "Tailing PM2 logs for 10s"
-  ssh "$VPS_HOST" "pm2 logs $APP_NAME --lines 20 --nostream" || true
+  log "Tailing PM2 logs for last 50 lines + scanning for fresh errors"
+  PM2_LOG=$(ssh "$VPS_HOST" "pm2 logs $APP_NAME --lines 50 --nostream" 2>&1 || true)
+  echo "$PM2_LOG"
+
+  # Считаем error-индикаторы в свежем логе. Если их > 0 — деплой
+  # формально прошёл (PM2 запустился), но что-то сломано. Раньше скрипт
+  # это пропускал, и юзер замечал ошибку только в Sentry/мониторинге.
+  ERR_COUNT=$(echo "$PM2_LOG" | grep -ciE '\b(error|fatal|uncaughtException|unhandledRejection|ENOENT|EADDRINUSE)\b' || true)
+  if [ "$ERR_COUNT" -gt 0 ]; then
+    warn "Found $ERR_COUNT error-like lines in PM2 logs — review above output"
+    warn "Full logs: ssh $VPS_HOST 'pm2 logs $APP_NAME'"
+  else
+    ok "No fresh errors in PM2 logs"
+  fi
 
   log "Checking health endpoint"
   sleep 3
-  if curl -sf --max-time 5 "https://nit.vibecoding.by/api/health" > /dev/null; then
-    ok "https://nit.vibecoding.by/api/health responds 200"
+  HEALTH_BODY=$(curl -sf --max-time 5 "https://nit.vibecoding.by/api/health" 2>/dev/null || echo "")
+  if [ -n "$HEALTH_BODY" ]; then
+    HEALTH_VERSION=$(echo "$HEALTH_BODY" | grep -oE '"version":"[^"]*"' | head -1 || true)
+    ok "https://nit.vibecoding.by/api/health responds 200 ($HEALTH_VERSION)"
   else
-    warn "Health check failed — check PM2 logs with:"
-    echo "   ssh $VPS_HOST 'pm2 logs $APP_NAME'"
+    err "Health check failed — service not responding on /api/health"
+    echo "   Debug: ssh $VPS_HOST 'pm2 logs $APP_NAME --lines 200'"
+    exit 1
   fi
 
   log "Checking WebSocket upgrade endpoint"

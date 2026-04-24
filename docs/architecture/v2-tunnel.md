@@ -1,9 +1,10 @@
 # NIT Builder v2.0 — Tunnel Architecture
 
-**Status:** Phase A ✅ + Phase B ✅ complete, Phase C scaffold ⏳
+**Status:** Phase A ✅ + Phase B ✅ + Phase C scaffold ✅ + audit/stabilization ✅
 **Started:** 2026-04-06
-**Last updated:** 2026-04-06 (Phase C.1 scaffold)
-**Target:** v2.0.0 stable after Phase C ready + deployed to nit.vibecoding.by
+**Last updated:** 2026-04-24 (post-audit cleanup, v2.0.0-beta.1 → release candidate)
+**Current version:** see `shared/src/version.ts` (`NIT_SERVER_VERSION`)
+**Target:** v2.0.0 stable after Phase C tunnel/desktop полировки + production traffic burn-in
 
 ---
 

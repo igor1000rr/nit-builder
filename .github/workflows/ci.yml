@@ -31,7 +31,9 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        # v7: Node 24 runtime — устраняет deprecation warning для Node 20
+        # actions, которые отключаются на runners в сентябре 2026.
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/

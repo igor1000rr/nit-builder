@@ -139,6 +139,15 @@ export function useGenerationFlow(
     authRef.current = auth;
   }, [auth]);
 
+  // lastPromptRef — handleWsEvent читает lastPrompt при сохранении в
+  // history. Объявлен здесь (выше handleWsEvent) для читаемости — раньше
+  // был ниже и работал через TDZ + временной gap (callback вызывается
+  // только после mount). Так понятнее.
+  const lastPromptRef = useRef(lastPrompt);
+  useEffect(() => {
+    lastPromptRef.current = lastPrompt;
+  }, [lastPrompt]);
+
   // getSocket-ref: caller передаёт стабильную функцию-геттер, мы сохраняем
   // её и читаем актуальный socket на каждый action. Это разрывает
   // зависимостный круг useControlSocket ↔ useGenerationFlow.
@@ -257,12 +266,6 @@ export function useGenerationFlow(
     },
     [scheduleIframeUpdate],
   );
-
-  // lastPrompt тоже нужен в WS handler без рекреации — ref-зеркало.
-  const lastPromptRef = useRef(lastPrompt);
-  useEffect(() => {
-    lastPromptRef.current = lastPrompt;
-  }, [lastPrompt]);
 
   // ─── Actions ──────────────────────────────────────────────────────
 

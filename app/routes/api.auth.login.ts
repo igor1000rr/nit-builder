@@ -84,6 +84,10 @@ export async function action({ request }: ActionFunctionArgs) {
     scope: `login-email:${emailKey}`,
     windowMs: 15 * 60_000,
     maxRequests: 5,
+    // Critical: useClientKey=false — лимит по email, а не по `email + IP`.
+    // Без этого атакующий обходит lockout просто ротируя IP. Раньше так
+    // и было — баг закрыт в P3 audit вместе с этими интеграционными тестами.
+    useClientKey: false,
   });
   if (!emailRl.allowed) {
     return Response.json(

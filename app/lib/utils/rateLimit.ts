@@ -82,12 +82,24 @@ export type RateLimitResult = {
 
 export function checkRateLimit(
   request: Request,
-  options?: { maxRequests?: number; windowMs?: number; scope?: string },
+  options?: {
+    maxRequests?: number;
+    windowMs?: number;
+    scope?: string;
+    /**
+     * По умолчанию ключ — `${scope}:${IP клиента}` — стандартный per-IP
+     * лимит. Если `false`, IP игнорируется, ключ — только `scope`. Это
+     * нужно для per-email/per-user lockout (`scope: "login-email:<email>"`)
+     * чтобы атакующий не обходил лимит просто меняя IP.
+     */
+    useClientKey?: boolean;
+  },
 ): RateLimitResult {
   const max = options?.maxRequests ?? DEFAULT_MAX;
   const window = options?.windowMs ?? DEFAULT_WINDOW_MS;
   const scope = options?.scope ?? "default";
-  const key = `${scope}:${getClientKey(request)}`;
+  const useClientKey = options?.useClientKey ?? true;
+  const key = useClientKey ? `${scope}:${getClientKey(request)}` : scope;
   const now = Date.now();
 
   let entry = store.get(key);
@@ -114,4 +126,9 @@ export function checkRateLimit(
 
   entry.timestamps.push(now);
   return { allowed: true, remaining: max - entry.timestamps.length };
+}
+
+/** @internal — сброс in-memory store между тестами. */
+export function _resetRateLimitState(): void {
+  store.clear();
 }

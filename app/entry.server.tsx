@@ -32,21 +32,49 @@ function applySecurityHeaders(headers: Headers): void {
     "camera=(), microphone=(), geolocation=(), interest-cohort=()",
   );
 
-  // Content Security Policy — разрешаем Tailwind/Alpine CDN для превью,
-  // Google Fonts, 'unsafe-inline' для Tailwind v4 injected styles.
+  // Content Security Policy.
+  //
+  // 'unsafe-eval' УБРАН — в parent документе он не нужен. Tailwind v4 у нас
+  // через Vite plugin (build-time, без runtime eval), Alpine.js используется
+  // только внутри iframe preview сгенерированных сайтов (sandbox изолирован
+  // от parent CSP). Раньше eval разрешался "на всякий случай" — атакующий
+  // через XSS получал полный JS execution. Теперь нет.
+  //
+  // 'unsafe-inline' для script ОСТАЁТСЯ временно — React Router 7 SSR
+  // serializes hydration data в inline <script>__remixContext={...}</script>
+  // без nonce-механизма. Переход на strict-dynamic с per-request nonce
+  // требует patch в @react-router/dev (issue открыт upstream). До тех пор
+  // 'unsafe-inline' для script — известный риск, но защита X-Frame-Options +
+  // SameSite cookies + CSRF делает XSS-эксплуатацию ограниченной.
+  //
+  // 'unsafe-inline' для style остаётся — Tailwind v4 + React style={{...}}
+  // props генерируют inline styles. Это меньшая угроза (style injection
+  // сложно превратить в RCE).
+  //
+  // connect-src добавляет ws://localhost:* для dev (HMR + WS tunnel).
+  // В production только same-origin wss://.
+  const isDev = process.env.NODE_ENV !== "production";
+  const wsConnectSrc = isDev
+    ? "ws: wss: http://localhost:* ws://localhost:*"
+    : "wss:";
+
   headers.set(
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com",
+      // 'unsafe-eval' исключён намеренно — см. блок-комментарий выше.
+      "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https:",
-      "connect-src 'self'",
+      `connect-src 'self' ${wsConnectSrc}`,
+      // frame-src 'self' blob: — для preview iframe (srcDoc генерирует blob)
       "frame-src 'self' blob:",
       "frame-ancestors 'self'",
       "base-uri 'self'",
       "form-action 'self'",
+      "object-src 'none'",
+      "upgrade-insecure-requests",
     ].join("; "),
   );
 }

@@ -1,25 +1,19 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { SimplePromptInput } from "~/components/simple/SimplePromptInput";
 import { TemplateGrid } from "~/components/simple/TemplateGrid";
 import { PolishChat } from "~/components/simple/PolishChat";
 import { HistoryPanel } from "~/components/simple/HistoryPanel";
 import { ToastContainer } from "~/components/simple/ToastContainer";
-import { runHttpPipeline } from "~/lib/services/pipelineHttpFallback";
-import { saveToHistory, type HistoryEntry } from "~/lib/stores/historyStore";
-import { saveRemoteSite } from "~/lib/stores/remoteHistoryStore";
-import { toast } from "~/lib/stores/toastStore";
 import { useKeyboardShortcuts } from "~/lib/hooks/useKeyboardShortcuts";
 import { useAuth } from "~/lib/hooks/useAuth";
 import { useControlSocket } from "~/lib/hooks/useControlSocket";
+import { useGenerationFlow } from "~/lib/hooks/useGenerationFlow";
+import { toast } from "~/lib/stores/toastStore";
 import { uuid } from "~/lib/utils/uuid";
 import { SettingsDrawer } from "~/components/simple/SettingsDrawer";
 import { AuthBadge } from "~/components/simple/AuthBadge";
 import { GridBg, Orbs, Chip, StatusDot, GlitchHeading, Particles, HorizontalParticles, ConicRays, Beams } from "~/components/nit";
 import { TerminalCodeCard } from "~/components/nit/TerminalCodeCard";
-
-type ViewMode = "welcome" | "generating" | "editing";
-type PipelineStep = "plan" | "template" | "code" | "done";
-type ChatMessage = { role: "user" | "assistant"; text: string };
 
 export function meta() {
   return [
@@ -32,387 +26,67 @@ export function meta() {
 }
 
 export default function Home() {
-  const [mode, setMode] = useState<ViewMode>("welcome");
-  const [html, setHtml] = useState("");
-  const [streamingHtml, setStreamingHtml] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // Stable projectId на сессию (одна вкладка = один проект)
   const [projectId] = useState(() => `simple-${uuid()}`);
-  const sessionIdRef = useRef<string | undefined>(undefined);
 
-  // Pipeline tracking
-  const [currentStep, setCurrentStep] = useState<PipelineStep>("plan");
-  const [templateName, setTemplateName] = useState("");
-  const [streamingChars, setStreamingChars] = useState(0);
+  // Auth state из global AuthContext (Phase B.5)
+  const auth = useAuth();
 
-  // UI state
+  // UI state — toggles drawer'ов. Намеренно отдельно от generation pipeline
+  // state: open/close drawer не должно пересоздавать generate-callback'и.
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Provider override — kept for v1 HTTP fallback path. Phase B+ uses tunnel
-  // routing which doesn't need provider selection (LM Studio is the only
-  // option on the user's side via the tunnel client).
-  const selectedProvider: string | null = null;
-  const [lastPrompt, setLastPrompt] = useState("");
-  const [lastTemplateId, setLastTemplateId] = useState("");
 
-  // Auth + WebSocket tunnel state (Phase B.5)
-  const auth = useAuth();
-  const activeRequestIdRef = useRef<string | null>(null);
-
-  // Throttle iframe updates via rAF
-  const pendingHtmlRef = useRef<string>("");
-  const rafIdRef = useRef<number | null>(null);
-  const abortCtrlRef = useRef<AbortController | null>(null);
-
-  const scheduleIframeUpdate = useCallback((htmlStr: string, chars: number) => {
-    pendingHtmlRef.current = htmlStr;
-    if (rafIdRef.current !== null) return;
-    rafIdRef.current = requestAnimationFrame(() => {
-      setStreamingHtml(pendingHtmlRef.current);
-      setStreamingChars(chars);
-      rafIdRef.current = null;
-    });
-  }, []);
-
-  // WebSocket control socket — dispatches server events to state
-  const handleWsEvent = useCallback(
-    (event: import("@nit/shared").ServerToBrowser) => {
-      switch (event.type) {
-        case "generate_step": {
-          if (event.step === "plan") setCurrentStep("plan");
-          else if (event.step === "template") {
-            setCurrentStep("template");
-            if (event.templateName) setTemplateName(event.templateName);
-            if (event.templateId) setLastTemplateId(event.templateId);
-          } else if (event.step === "code") setCurrentStep("code");
-          else if (event.step === "done") setCurrentStep("done");
-          break;
-        }
-        case "generate_text": {
-          const next = (pendingHtmlRef.current || "") + event.text;
-          scheduleIframeUpdate(next, next.length);
-          break;
-        }
-        case "generate_done": {
-          setHtml(event.html);
-          setStreamingHtml(event.html);
-          setMode("editing");
-          setLoading(false);
-          setCurrentStep("done");
-          activeRequestIdRef.current = null;
-
-          setChatMessages((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              text: `Готово ✨ Шаблон: ${event.templateName}. Сгенерировано за ${(event.durationMs / 1000).toFixed(1)}s. Опиши правки — применю.`,
-            },
-          ]);
-
-          // Save to history (local + remote if authed)
-          try {
-            const entry: HistoryEntry = {
-              id: uuid(),
-              createdAt: Date.now(),
-              prompt: lastPrompt,
-              templateId: event.templateId,
-              templateName: event.templateName,
-              html: event.html,
-            };
-            saveToHistory(entry);
-            // Fire-and-forget remote save (non-blocking, ignore errors)
-            void saveRemoteSite({
-              prompt: lastPrompt,
-              html: event.html,
-              templateId: event.templateId,
-              templateName: event.templateName,
-            });
-          } catch {
-            // ignore storage failures
-          }
-          toast.success(`Сайт готов за ${(event.durationMs / 1000).toFixed(1)}s`);
-          break;
-        }
-        case "generate_error": {
-          setLoading(false);
-          activeRequestIdRef.current = null;
-
-          let msg = event.error;
-          if (event.code === "NO_TUNNEL") {
-            msg = "Твой туннель не подключён. Запусти NIT Tunnel клиент.";
-          } else if (event.code === "TUNNEL_DISCONNECTED") {
-            msg = "Туннель отключился во время генерации. Попробуй снова.";
-          } else if (event.code === "RATE_LIMITED") {
-            msg = "Слишком много параллельных генераций. Дождись завершения.";
-          }
-          setChatMessages((prev) => [
-            ...prev,
-            { role: "assistant", text: `❌ ${msg}` },
-          ]);
-          // Stay on split view if we already have a site or chat history,
-          // otherwise bounce back to welcome
-          if (!html) {
-            setMode("welcome");
-          }
-          toast.error(msg);
-          break;
-        }
-      }
-    },
-    // `html` намеренно не в deps — переcоздание handler'а на каждый
-    // setHtml() заставило бы useControlSocket отписываться/переподписываться
-    // на WebSocket events и терять in-flight генерации. Stale closure тут
-    // безопасен: используем только в `if (!html)` ветке для UX-fallback,
-    // и у юзера эта ветка отрабатывает в первую же error до получения html.
-    // Будет переписано через ref в P3 декомпозиции home.tsx.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lastPrompt, scheduleIframeUpdate],
-  );
+  // ─── Generation pipeline + WebSocket flow ─────────────────────────
+  //
+  // useGenerationFlow инкапсулирует ~250 LOC pipeline-логики: state
+  // (mode/html/streamingHtml/loading/...), createSite/polishSite/cancel,
+  // WebSocket event handling, HTTP fallback. Раньше всё это было inline
+  // в этом компоненте — см. git history pre-P3.
+  //
+  // socket передаётся через геттер (а не объект) чтобы разорвать
+  // циклическую зависимость useControlSocket ↔ useGenerationFlow:
+  // useControlSocket нужен handleWsEvent (отдаёт hook), hook нужен
+  // socket (создаёт useControlSocket). Lazy getter решает elegantly.
+  const socketRef = useRef<ReturnType<typeof useControlSocket> | null>(null);
+  const flow = useGenerationFlow({
+    projectId,
+    auth: auth.status === "authenticated" ? auth : { status: auth.status },
+    getSocket: () =>
+      socketRef.current ?? {
+        // До первого render useControlSocket — placeholder. На практике
+        // generate-action возможен только после нескольких рендеров
+        // (юзер нажимает submit), к этому моменту socket уже реальный.
+        status: "idle",
+        tunnelStatus: "unknown",
+        sendGenerate: () => false,
+        sendAbort: () => undefined,
+      },
+  });
 
   const socket = useControlSocket({
     enabled: auth.status === "authenticated",
-    onEvent: handleWsEvent,
+    onEvent: flow.handleWsEvent,
   });
+  socketRef.current = socket;
 
-  useEffect(() => {
-    return () => {
-      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
-      abortCtrlRef.current?.abort();
-    };
-  }, []);
-
-  const createSite = useCallback(
-    async (prompt: string) => {
-      setMode("generating");
-      setLoading(true);
-      setStreamingHtml("");
-      setTemplateName("");
-      setStreamingChars(0);
-      setCurrentStep("plan");
-      setLastPrompt(prompt);
-      pendingHtmlRef.current = "";
-
-      // Seed the chat with the user's initial prompt so the split-view
-      // layout (chat left, preview right) has something to show from
-      // the very first moment of generation.
-      setChatMessages([{ role: "user", text: prompt }]);
-
-      // Phase B.5: Prefer WebSocket tunnel path if authed and tunnel online.
-      // Events flow through handleWsEvent → state updates happen there.
-      if (
-        auth.status === "authenticated" &&
-        socket.status === "authed" &&
-        socket.tunnelStatus === "online"
-      ) {
-        const requestId = `req-${uuid()}`;
-        activeRequestIdRef.current = requestId;
-        const sent = socket.sendGenerate({
-          requestId,
-          mode: "create",
-          prompt,
-        });
-        if (!sent) {
-          toast.error("Туннель не готов. Попробуй ещё раз.");
-          setLoading(false);
-          setMode("welcome");
-          return;
-        }
-        return; // Response handled via handleWsEvent
-      }
-
-      // Fallback: HTTP streaming path (legacy v1).
-      // Логика SSE-парсинга и fetch-обвязки вынесена в runHttpPipeline —
-      // здесь только перевод его событий в локальный React-стейт.
-      const ctrl = new AbortController();
-      abortCtrlRef.current = ctrl;
-
-      try {
-        const result = await runHttpPipeline({
-          mode: "create",
-          projectId,
-          prompt,
-          sessionId: sessionIdRef.current,
-          providerId: selectedProvider ?? undefined,
-          signal: ctrl.signal,
-          onEvent: (event) => {
-            switch (event.type) {
-              case "session_init":
-                sessionIdRef.current = event.sessionId;
-                break;
-              case "plan_ready":
-                setCurrentStep("template");
-                break;
-              case "template_selected":
-                setTemplateName(event.templateName);
-                setCurrentStep("template");
-                break;
-              case "step_start":
-                if (event.roleName === "Кодер") setCurrentStep("code");
-                break;
-              case "text_delta":
-                scheduleIframeUpdate(event.accumulated, event.accumulated.length);
-                break;
-              case "step_complete":
-              case "error":
-                // step_complete: дополнительно ничего — финальный html
-                //   придёт в result.finalHtml. error: throw уже произошёл
-                //   в runHttpPipeline, мы сюда не дойдём.
-                break;
-            }
-          },
-        });
-
-        setCurrentStep("done");
-        setHtml(result.finalHtml);
-        setStreamingHtml("");
-        setLastTemplateId(result.templateId);
-
-        // Save to local history (+ remote если authed)
-        if (result.finalHtml && result.templateId) {
-          saveToHistory({
-            prompt,
-            html: result.finalHtml,
-            templateId: result.templateId,
-            templateName: result.templateName,
-          });
-          if (auth.status === "authenticated") {
-            void saveRemoteSite({
-              prompt,
-              html: result.finalHtml,
-              templateId: result.templateId,
-              templateName: result.templateName,
-            });
-          }
-          toast.success("Сайт создан и сохранён в истории");
-        }
-
-        setMode("editing");
-      } catch (err) {
-        const msg = (err as Error).message;
-        if ((err as Error).name !== "AbortError") {
-          toast.error(`Ошибка: ${msg}`);
-        }
-        setMode("welcome");
-      } finally {
-        setLoading(false);
-        abortCtrlRef.current = null;
-      }
-    },
-    [projectId, scheduleIframeUpdate, selectedProvider, auth.status, socket],
-  );
-
-  const polishSite = useCallback(
-    async (request: string) => {
-      setChatMessages((prev) => [...prev, { role: "user", text: request }]);
-      setLoading(true);
-
-      // Phase B.5: Prefer WebSocket tunnel path
-      if (
-        auth.status === "authenticated" &&
-        socket.status === "authed" &&
-        socket.tunnelStatus === "online"
-      ) {
-        const requestId = `req-${uuid()}`;
-        activeRequestIdRef.current = requestId;
-        pendingHtmlRef.current = "";
-        setStreamingHtml("");
-        const sent = socket.sendGenerate({
-          requestId,
-          mode: "polish",
-          prompt: request,
-          previousHtml: html,
-        });
-        if (!sent) {
-          toast.error("Туннель не готов. Попробуй ещё раз.");
-          setLoading(false);
-          return;
-        }
-        return;
-      }
-
-      // Fallback: HTTP path. Та же runHttpPipeline что и в createSite —
-      // отличается только mode + что мы не трогаем templateId/templateName.
-      const ctrl = new AbortController();
-      abortCtrlRef.current = ctrl;
-
-      try {
-        const result = await runHttpPipeline({
-          mode: "polish",
-          projectId,
-          prompt: request,
-          sessionId: sessionIdRef.current,
-          providerId: selectedProvider ?? undefined,
-          signal: ctrl.signal,
-          onEvent: (event) => {
-            switch (event.type) {
-              case "session_init":
-                sessionIdRef.current = event.sessionId;
-                break;
-              case "text_delta":
-                scheduleIframeUpdate(event.accumulated, event.accumulated.length);
-                break;
-              // plan_ready/template_selected/step_start/step_complete/error
-              // — для polish либо не релевантны, либо обрабатываются через
-              // result.finalHtml ниже / throw в runHttpPipeline.
-              default:
-                break;
-            }
-          },
-        });
-
-        setHtml(result.finalHtml);
-        setStreamingHtml("");
-        setChatMessages((prev) => [...prev, { role: "assistant", text: "Готово ✨" }]);
-        toast.success("Правки применены");
-      } catch (err) {
-        const msg = (err as Error).message;
-        if ((err as Error).name !== "AbortError") {
-          setChatMessages((prev) => [...prev, { role: "assistant", text: `Ошибка: ${msg}` }]);
-          toast.error(`Ошибка правки: ${msg}`);
-        }
-        setStreamingHtml("");
-      } finally {
-        setLoading(false);
-        abortCtrlRef.current = null;
-      }
-    },
-    [projectId, scheduleIframeUpdate, selectedProvider, auth.status, socket, html],
-  );
-
-  const openFromHistory = useCallback((entry: HistoryEntry) => {
-    setHtml(entry.html);
-    setStreamingHtml("");
-    setLastPrompt(entry.prompt);
-    setLastTemplateId(entry.templateId);
-    setTemplateName(entry.templateName);
-    setChatMessages([]);
-    setHistoryOpen(false);
-    setMode("editing");
-    toast.info(`Открыт сайт: ${entry.templateName}`);
-  }, []);
-
-  const reset = useCallback(() => {
-    setMode("welcome");
-    setHtml("");
-    setStreamingHtml("");
-    setChatMessages([]);
-    setTemplateName("");
-    setStreamingChars(0);
-    setCurrentStep("plan");
-    sessionIdRef.current = undefined;
-  }, []);
-
-  const cancelGeneration = useCallback(() => {
-    abortCtrlRef.current?.abort();
-    // Phase B.5: also abort via WebSocket if active request is being routed via tunnel
-    if (activeRequestIdRef.current) {
-      socket.sendAbort(activeRequestIdRef.current);
-      activeRequestIdRef.current = null;
-    }
-    setLoading(false);
-    toast.warning("Генерация отменена");
-    setMode("welcome");
-  }, [socket]);
+  // Алиасы — короткие имена для JSX ниже.
+  const {
+    mode,
+    html,
+    streamingHtml,
+    streamingChars,
+    loading,
+    currentStep,
+    templateName,
+    lastTemplateId,
+    chatMessages,
+    createSite,
+    polishSite,
+    cancelGeneration,
+    loadFromHistory: openFromHistory,
+    reset,
+  } = flow;
 
   const downloadHtml = useCallback(() => {
     const content = streamingHtml || html;

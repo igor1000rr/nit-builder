@@ -54,11 +54,15 @@ export default defineConfig({
         "app/lib/rag/seeds/**",
         "app/lib/utils/logger.ts",
       ],
+      // Baseline на v2.0.0-beta.1 после P4 (800 тестов / 64 файла):
+      //   lines/statements ~67.6%, functions ~78%, branches ~80%.
+      // Threshold = baseline минус 3pp буфер. Падение ниже = красный CI:
+      // либо новый код без тестов, либо удалили существующие.
       thresholds: {
-        lines: 60,
-        functions: 70,
-        branches: 75,
-        statements: 60,
+        lines: 64,
+        functions: 75,
+        branches: 77,
+        statements: 64,
       },
     },
   },

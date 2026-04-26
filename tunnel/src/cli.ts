@@ -14,52 +14,7 @@
  */
 
 import { runTunnel } from "./tunnelClient.js";
-
-type Flags = {
-  server: string;
-  token: string;
-  lmStudio: string;
-  verbose: boolean;
-  help: boolean;
-};
-
-function parseArgs(argv: string[]): Flags {
-  const flags: Flags = {
-    server: process.env.NIT_SERVER ?? "wss://nit.vibecoding.by/api/tunnel",
-    token: process.env.NIT_TOKEN ?? "",
-    lmStudio: process.env.LMSTUDIO_URL ?? "http://localhost:1234/v1",
-    verbose: process.env.NIT_VERBOSE === "true",
-    help: false,
-  };
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    switch (arg) {
-      case "--server":
-      case "-s":
-        flags.server = argv[++i] ?? flags.server;
-        break;
-      case "--token":
-      case "-t":
-        flags.token = argv[++i] ?? flags.token;
-        break;
-      case "--lm-studio":
-      case "--lmstudio":
-        flags.lmStudio = argv[++i] ?? flags.lmStudio;
-        break;
-      case "--verbose":
-      case "-v":
-        flags.verbose = true;
-        break;
-      case "--help":
-      case "-h":
-        flags.help = true;
-        break;
-    }
-  }
-
-  return flags;
-}
+import { parseArgs } from "./cliArgs.js";
 
 function printHelp(): void {
   console.log(`

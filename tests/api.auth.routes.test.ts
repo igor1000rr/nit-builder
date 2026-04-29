@@ -24,6 +24,11 @@ vi.mock("~/lib/server/sessionCookie.server", () => ({
 vi.mock("~/lib/services/tunnelRegistry.server", () => ({
   hasTunnelForUser: vi.fn(() => false),
   getTunnelCount: vi.fn(() => 0),
+  // logout-all → revokeUserBrowsers, regenerate-tunnel-token → revokeUserTunnels.
+  // Без этих стабов мок-модуль возвращает undefined для названных импортов,
+  // route падает в catch и отдаёт 500 вместо 200.
+  revokeUserBrowsers: vi.fn(() => 0),
+  revokeUserTunnels: vi.fn(() => 0),
 }));
 
 import { action as registerAction } from "~/routes/api.auth.register";
@@ -38,6 +43,7 @@ import {
   getNitUser,
 } from "~/lib/server/appwrite.server";
 import { parseSessionCookie, verifySessionToken } from "~/lib/server/sessionCookie.server";
+import { revokeUserBrowsers } from "~/lib/services/tunnelRegistry.server";
 import { _resetRateLimitState } from "~/lib/utils/rateLimit";
 
 const mockedRegisterUser = registerUser as unknown as ReturnType<typeof vi.fn>;
@@ -47,10 +53,12 @@ const mockedBumpVersion = bumpSessionVersion as unknown as ReturnType<typeof vi.
 const mockedGetNitUser = getNitUser as unknown as ReturnType<typeof vi.fn>;
 const mockedParseCookie = parseSessionCookie as unknown as ReturnType<typeof vi.fn>;
 const mockedVerifyToken = verifySessionToken as unknown as ReturnType<typeof vi.fn>;
+const mockedRevokeBrowsers = revokeUserBrowsers as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockedDeleteSession.mockResolvedValue(undefined);
+  mockedRevokeBrowsers.mockReturnValue(0);
   _resetRateLimitState();
 });
 
@@ -211,6 +219,7 @@ describe("POST /api/auth/logout-all", () => {
       email: "alice@example.com",
     });
     mockedBumpVersion.mockResolvedValueOnce(7);
+    mockedRevokeBrowsers.mockReturnValueOnce(2);
 
     const req = jsonRequest("http://localhost/api/auth/logout-all", {}, { ip: "10.5.0.3" });
     const res = await logoutAllAction({ request: req } as Parameters<typeof logoutAllAction>[0]);
@@ -218,8 +227,16 @@ describe("POST /api/auth/logout-all", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.sessionVersion).toBe(7);
+    expect(data.closedSessions).toBe(2);
     expect(res.headers.get("Set-Cookie")).toMatch(/Max-Age=0/);
     expect(mockedBumpVersion).toHaveBeenCalledWith("u-1");
+    // revokeUserBrowsers вызвался с правильным userId — иначе ревокация
+    // ушла бы в /dev/null и старые WS-сессии остались бы authed.
+    expect(mockedRevokeBrowsers).toHaveBeenCalledWith(
+      "u-1",
+      4001,
+      expect.stringContaining("logout-all"),
+    );
   });
 
   it("rate-limit: 3 запроса/мин с одного IP → 429 на 4-й", async () => {

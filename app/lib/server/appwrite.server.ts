@@ -470,8 +470,14 @@ export async function validateSessionJwt(
  * Look up a user by tunnel token. Used to authenticate tunnel client connections.
  *
  * Two-step verification:
- * 1. Compute HMAC lookup → Query.equal → find candidate user
- * 2. Verify argon2id hash → confirm match
+ * 1. Compute HMAC lookup → Query.equal → find candidate(s)
+ * 2. Verify argon2id hash for each candidate → confirm match
+ *
+ * Lookup-collision handling: HMAC-SHA256 в принципе мог бы дать collision
+ * (вероятность ~2^-128, практически 0). Раньше брали documents[0] и
+ * игнорировали остальное; если бы коллизия случилась, легитимный юзер не
+ * смог бы залогиниться. Теперь Query.limit(2) и перебираем кандидатов
+ * через argon2.verify — плюс log warning при `length > 1`.
  *
  * Returns the userId if the token is valid.
  */
@@ -490,16 +496,24 @@ export async function findUserByTunnelToken(token: string): Promise<{ userId: st
     const result = await db.listDocuments<NitUser>(
       APPWRITE_CONFIG.databaseId,
       APPWRITE_CONFIG.collections.users,
-      [Query.equal("tunnelTokenLookup", lookup), Query.limit(1)],
+      [Query.equal("tunnelTokenLookup", lookup), Query.limit(2)],
     );
     if (result.documents.length === 0) return null;
 
-    const user = result.documents[0]!;
-    // Final verification with argon2id — defence in depth
-    const valid = await verifyTunnelTokenHash(token, user.tunnelTokenHash);
-    if (!valid) return null;
+    if (result.documents.length > 1) {
+      // Collision detected — astronomically unlikely with HMAC-SHA256, но
+      // обрабатываем правильно: перебираем всех кандидатов через argon2.
+      console.warn(
+        `[appwrite] tunnelTokenLookup collision: ${result.documents.length} candidates for one lookup hash`,
+      );
+    }
 
-    return { userId: user.$id };
+    for (const candidate of result.documents) {
+      // Final verification with argon2id — defence in depth
+      const valid = await verifyTunnelTokenHash(token, candidate.tunnelTokenHash);
+      if (valid) return { userId: candidate.$id };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -508,6 +522,11 @@ export async function findUserByTunnelToken(token: string): Promise<{ userId: st
 /**
  * Regenerate a user's tunnel token (revokes the old one).
  * Returns the new plaintext token.
+ *
+ * NOTE: уже подключённые активные туннели НЕ закрываются автоматически —
+ * они прошли argon2-verify в момент connect и держат открытый WS до
+ * естественного close. Реальная ревокация (закрытие живых WS) делается
+ * в endpoint'е через tunnelRegistry.revokeUserTunnels.
  */
 export async function regenerateTunnelToken(userId: string): Promise<string> {
   const { generateTunnelToken, hashTunnelToken, computeTokenLookup } = await import(

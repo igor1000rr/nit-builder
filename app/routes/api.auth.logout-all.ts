@@ -4,6 +4,11 @@
  * Механизм: bumpSessionVersion() инкрементирует nit_users.sessionVersion.
  * С этого момента getAuth будет отклонять все токены с меньшим version.
  *
+ * Дополнительно: revokeUserBrowsers закрывает все живые WS-сессии этого
+ * юзера на текущем инстансе. Без этого старая WS осталась бы authed до
+ * естественного реконнекта (heartbeat-revocation в wsHandlers тоже её
+ * закроет, но через до 30s — manual close мгновенный).
+ *
  * Применение: кнопка "Выйти со всех устройств" в сеттингах, автоматически
  * при смене пароля, при подозрении на утечку cookie.
  *
@@ -16,6 +21,7 @@ import { getAuth } from "~/lib/server/requireAuth.server";
 import { bumpSessionVersion } from "~/lib/server/appwrite.server";
 import { buildClearCookie, isProduction } from "~/lib/server/sessionCookie.server";
 import { checkRateLimit } from "~/lib/utils/rateLimit";
+import { revokeUserBrowsers } from "~/lib/services/tunnelRegistry.server";
 
 export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== "POST") {
@@ -51,10 +57,24 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     const newVersion = await bumpSessionVersion(user.userId);
 
+    // Закрываем все живые WS-сессии этого юзера на текущем инстансе.
+    // На других инстансах ревокация дойдёт через heartbeat (≤ 30s).
+    const closedSessions = revokeUserBrowsers(
+      user.userId,
+      4001,
+      "Session revoked via logout-all",
+    );
+    if (closedSessions > 0) {
+      console.log(
+        `[api.auth.logout-all] Closed ${closedSessions} active WS browser session(s) for user=${user.userId}`,
+      );
+    }
+
     return Response.json(
       {
         success: true,
         sessionVersion: newVersion,
+        closedSessions,
         message: "Все ваши сессии отозваны. Вы будете выкинуты со всех устройств.",
       },
       {

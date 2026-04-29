@@ -6,6 +6,9 @@
  * - Route browser requests to the right tunnel
  * - Match tunnel responses back to the waiting browser
  * - Handle disconnects, timeouts, multi-tab, multi-tunnel per user
+ * - Принудительная revocation: revokeUserTunnels / revokeUserBrowsers для
+ *   logout-all и regenerate-tunnel-token (без них старая WS остаётся authed
+ *   до natural реконнекта, что эффективно отменяет logout-all на минуты-часы)
  *
  * All state is in-memory — on VPS restart, all tunnels must reconnect.
  * This is intentional: keeps the system simple and stateless.
@@ -37,6 +40,15 @@ export type BrowserSession = {
   userId: string;
   ws: WebSocket;
   connectedAt: number;
+  /**
+   * sessionVersion из cookie на момент upgrade. На каждом heartbeat сравнивается
+   * с current через getUserSessionVersion (кэш TTL 30s). Если current больше —
+   * сессия отозвана (logout-all / password change), WS закрывается. Без этого
+   * поля старая WS-сессия пережила бы logout-all до естественного реконнекта.
+   *
+   * Optional: в dev-режиме без Appwrite version не имеет смысла.
+   */
+  sessionVersion?: number;
 };
 
 /** Pending request waiting for tunnel response */
@@ -48,7 +60,6 @@ export type PendingRequest = {
   startedAt: number;
   /** Обновляется при каждом text/start/done — для stale-cleanup. */
   lastActivityAt: number;
-  accumulatedText: string;
   currentStep: PipelineStep;
   /** Template info set after template_selected event */
   templateId?: string;
@@ -60,15 +71,24 @@ export type PendingRequest = {
 
 // ─── Safety caps ──────────────────────────────────────────────────
 //
-// MAX_CONCURRENT_PER_USER: если юзер шлёт > N generate одновременно —
-// отказываем. Без этого можно DoS'ить собственный туннель (LM Studio
-// подавится N параллельных stream'ов).
+// MAX_CONCURRENT_PER_USER: env-конфигурируется через NIT_MAX_CONCURRENT_PER_USER
+// (default 3). Считается по юзеру, не по туннелю — даже если у юзера два
+// туннеля (ноут+десктоп), общий cap остаётся.
+//
+// Без cap-а юзер может DoS'ить собственный туннель (LM Studio подавится
+// N параллельных stream'ов).
 //
 // PENDING_TIMEOUT_MS: если туннель отправил response_start и замолчал
 // (LLM завис, gpu crash), pendingRequests висит пока не обнулится
 // close-frame'ом. За 5 минут без активности — failим запрос и чистим.
 
-const MAX_CONCURRENT_PER_USER = 3;
+const MAX_CONCURRENT_PER_USER = (() => {
+  const raw = process.env.NIT_MAX_CONCURRENT_PER_USER;
+  if (!raw) return 3;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : 3;
+})();
+
 const PENDING_TIMEOUT_MS = 5 * 60_000;
 const PENDING_SWEEP_INTERVAL_MS = 30_000;
 
@@ -260,6 +280,15 @@ export function unregisterBrowser(sessionId: string): void {
   }
 }
 
+/**
+ * Получить session-version юзера для активной browser сессии. Используется
+ * heartbeat-revocation: вызывается на каждом heartbeat, сравнивается с
+ * сохранённым sessionVersion в session. Если current > stored — закрыть WS.
+ */
+export function getBrowserSession(sessionId: string): BrowserSession | null {
+  return browsers.get(sessionId) ?? null;
+}
+
 function broadcastTunnelStatus(userId: string): void {
   const sessions = browsersByUser.get(userId);
   if (!sessions) return;
@@ -275,6 +304,71 @@ function broadcastTunnelStatus(userId: string): void {
     const browser = browsers.get(sessionId);
     if (browser) sendToBrowser(browser.ws, message);
   }
+}
+
+// ─── Forced revocation ──────────────────────────────────────────────
+//
+// Используется при logout-all и regenerate-tunnel-token. Без этого
+// старая WS остаётся authed до естественного реконнекта (минуты-часы),
+// фактически отменяя ревокацию.
+
+/**
+ * Закрывает все активные туннели юзера, возвращает их количество.
+ * Применение: regenerate-tunnel-token (новый токен → старые туннели должны
+ * переаутентифицироваться).
+ */
+export function revokeUserTunnels(
+  userId: string,
+  closeCode: number = 4001,
+  reason: string = "Tunnel revoked",
+): number {
+  const conns = tunnels.get(userId);
+  if (!conns || conns.length === 0) return 0;
+
+  // Копия — unregisterTunnel ниже мутирует Map (set с новым массивом).
+  // Хотя итерация по conns технически безопасна (conns ссылается на старый
+  // массив, не мутируется in-place), копия делает поведение более явным.
+  const copy = [...conns];
+  let closed = 0;
+  for (const c of copy) {
+    try {
+      c.ws.close(closeCode, reason);
+    } catch {
+      // ws уже закрыт или недоступен — всё равно убираем из реестра
+    }
+    unregisterTunnel(c.connectionId);
+    closed++;
+  }
+  return closed;
+}
+
+/**
+ * Закрывает все активные browser-сессии юзера, возвращает их количество.
+ * Применение: logout-all (sessionVersion bump'нулась → старые WS должны
+ * быть отозваны).
+ */
+export function revokeUserBrowsers(
+  userId: string,
+  closeCode: number = 4001,
+  reason: string = "Session revoked",
+): number {
+  const sessionIds = browsersByUser.get(userId);
+  if (!sessionIds || sessionIds.size === 0) return 0;
+
+  const copy = Array.from(sessionIds);
+  let closed = 0;
+  for (const sid of copy) {
+    const session = browsers.get(sid);
+    if (!session) continue;
+    try {
+      session.ws.close(closeCode, reason);
+    } catch {
+      // ws уже закрыт — всё равно чистим реестр
+    }
+    unregisterBrowser(sid);
+    closed++;
+  }
+  return closed;
 }
 
 // ─── Request routing ──────────────────────────────────────────────
@@ -309,7 +403,6 @@ export function routeRequest(params: RouteRequestParams): boolean {
     tunnelConnectionId: tunnel.connectionId,
     startedAt: now,
     lastActivityAt: now,
-    accumulatedText: "",
     currentStep: "plan",
   };
   pendingRequests.set(params.requestId, pending);
@@ -404,7 +497,10 @@ export function handleTunnelResponse(
       break;
 
     case "text":
-      req.accumulatedText += event.text;
+      // Раньше тут аккумулировался accumulatedText в req — но done event
+      // приходит с полным fullText от туннеля, а accumulated нигде не
+      // использовался. Удалено чтобы не плодить мёртвую память на каждый
+      // active request (32+ KB on average per long generation).
       sendToBrowser(browser.ws, {
         type: "generate_text",
         requestId,
@@ -482,6 +578,7 @@ export function getStats() {
     activeBrowsers: browsers.size,
     pendingRequests: pendingRequests.size,
     uniqueUsersWithTunnel: tunnels.size,
+    maxConcurrentPerUser: MAX_CONCURRENT_PER_USER,
   };
 }
 

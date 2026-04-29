@@ -15,26 +15,37 @@ import {
   updateHeartbeat,
   getStats,
   resetRegistry,
+  revokeUserTunnels,
+  revokeUserBrowsers,
   type TunnelConnection,
   type BrowserSession,
 } from "~/lib/services/tunnelRegistry.server";
 
-// Mock WebSocket — just tracks sent messages
-function mockWs(): WebSocket & { sent: unknown[] } {
+// Mock WebSocket — tracks sent messages and close calls
+type MockWs = WebSocket & {
+  sent: unknown[];
+  closeCalls: Array<{ code?: number; reason?: string }>;
+};
+
+function mockWs(): MockWs {
   const sent: unknown[] = [];
+  const closeCalls: Array<{ code?: number; reason?: string }> = [];
   return {
     sent,
+    closeCalls,
     send(data: unknown) {
       sent.push(JSON.parse(data as string));
     },
-    close() {},
+    close(code?: number, reason?: string) {
+      closeCalls.push({ code, reason });
+    },
     readyState: 1,
-  } as unknown as WebSocket & { sent: unknown[] };
+  } as unknown as MockWs;
 }
 
 function makeTunnel(userId: string, connectionId = `t-${userId}-${Math.random()}`): {
   conn: TunnelConnection;
-  ws: WebSocket & { sent: unknown[] };
+  ws: MockWs;
 } {
   const ws = mockWs();
   const conn: TunnelConnection = {
@@ -55,7 +66,7 @@ function makeTunnel(userId: string, connectionId = `t-${userId}-${Math.random()}
 
 function makeBrowser(userId: string, sessionId = `b-${userId}-${Math.random()}`): {
   session: BrowserSession;
-  ws: WebSocket & { sent: unknown[] };
+  ws: MockWs;
 } {
   const ws = mockWs();
   const session: BrowserSession = {
@@ -63,6 +74,7 @@ function makeBrowser(userId: string, sessionId = `b-${userId}-${Math.random()}`)
     userId,
     ws,
     connectedAt: Date.now(),
+    sessionVersion: 0,
   };
   return { session, ws };
 }
@@ -400,6 +412,111 @@ describe("tunnelRegistry", () => {
     });
   });
 
+  describe("forced revocation", () => {
+    it("revokeUserTunnels closes WS, removes from registry, returns count", () => {
+      const t1 = makeTunnel("alice", "t-rv-1");
+      const t2 = makeTunnel("alice", "t-rv-2");
+      const tBob = makeTunnel("bob", "t-bob");
+      registerTunnel(t1.conn);
+      registerTunnel(t2.conn);
+      registerTunnel(tBob.conn);
+
+      const closed = revokeUserTunnels("alice", 4001, "test reason");
+      expect(closed).toBe(2);
+      expect(hasTunnelForUser("alice")).toBe(false);
+      expect(hasTunnelForUser("bob")).toBe(true);
+      expect(t1.ws.closeCalls).toEqual([{ code: 4001, reason: "test reason" }]);
+      expect(t2.ws.closeCalls).toEqual([{ code: 4001, reason: "test reason" }]);
+      expect(tBob.ws.closeCalls).toEqual([]);
+    });
+
+    it("revokeUserTunnels fails pending requests of revoked user", () => {
+      const t = makeTunnel("alice", "t-rvp");
+      const b = makeBrowser("alice", "b-rvp");
+      registerTunnel(t.conn);
+      registerBrowser(b.session);
+      routeRequest({
+        requestId: "req-rvp",
+        userId: "alice",
+        browserSessionId: "b-rvp",
+        system: "",
+        prompt: "",
+        maxOutputTokens: 100,
+        temperature: 0.4,
+      });
+      b.ws.sent.length = 0;
+
+      revokeUserTunnels("alice", 4001, "test");
+
+      const err = b.ws.sent.find(
+        (m) => (m as { type: string }).type === "generate_error",
+      ) as { code: string };
+      expect(err?.code).toBe("TUNNEL_DISCONNECTED");
+    });
+
+    it("revokeUserTunnels returns 0 when user has no tunnels", () => {
+      expect(revokeUserTunnels("ghost")).toBe(0);
+    });
+
+    it("revokeUserBrowsers closes WS and removes from registry", () => {
+      const b1 = makeBrowser("alice", "b-rv-1");
+      const b2 = makeBrowser("alice", "b-rv-2");
+      const bBob = makeBrowser("bob", "b-bob");
+      registerBrowser(b1.session);
+      registerBrowser(b2.session);
+      registerBrowser(bBob.session);
+
+      const closed = revokeUserBrowsers("alice", 4001, "logout-all");
+      expect(closed).toBe(2);
+      expect(getStats().activeBrowsers).toBe(1);
+      expect(b1.ws.closeCalls).toEqual([{ code: 4001, reason: "logout-all" }]);
+      expect(b2.ws.closeCalls).toEqual([{ code: 4001, reason: "logout-all" }]);
+      expect(bBob.ws.closeCalls).toEqual([]);
+    });
+
+    it("revokeUserBrowsers aborts pending requests from revoked sessions", () => {
+      const t = makeTunnel("alice", "t-rb");
+      const b = makeBrowser("alice", "b-rb");
+      registerTunnel(t.conn);
+      registerBrowser(b.session);
+      routeRequest({
+        requestId: "req-rb",
+        userId: "alice",
+        browserSessionId: "b-rb",
+        system: "",
+        prompt: "",
+        maxOutputTokens: 100,
+        temperature: 0.4,
+      });
+      t.ws.sent.length = 0;
+
+      revokeUserBrowsers("alice", 4001, "test");
+
+      // unregisterBrowser → abortRequest → tunnel получает abort
+      const aborts = t.ws.sent.filter(
+        (m) => (m as { type: string }).type === "abort",
+      );
+      expect(aborts.length).toBe(1);
+    });
+
+    it("revokeUserBrowsers returns 0 when user has no sessions", () => {
+      expect(revokeUserBrowsers("ghost")).toBe(0);
+    });
+
+    it("revokeUserTunnels safely ignores ws.close() throws", () => {
+      const t = makeTunnel("alice", "t-throw");
+      // имитация: ws.close выбрасывает
+      (t.ws as unknown as { close: () => never }).close = () => {
+        throw new Error("ws already closed");
+      };
+      registerTunnel(t.conn);
+
+      // Не должно падать — close в try/catch внутри revoke
+      expect(() => revokeUserTunnels("alice")).not.toThrow();
+      expect(hasTunnelForUser("alice")).toBe(false);
+    });
+  });
+
   describe("stats", () => {
     it("tracks counters correctly", () => {
       const { conn } = makeTunnel("alice", "t-s1");
@@ -426,6 +543,12 @@ describe("tunnelRegistry", () => {
       expect(stats.totalRequestsRouted).toBe(1);
       expect(stats.totalRequestsCompleted).toBe(1);
       expect(stats.totalRequestsFailed).toBe(0);
+    });
+
+    it("exposes maxConcurrentPerUser config in stats", () => {
+      const stats = getStats();
+      expect(typeof stats.maxConcurrentPerUser).toBe("number");
+      expect(stats.maxConcurrentPerUser).toBeGreaterThan(0);
     });
   });
 });

@@ -33,10 +33,12 @@ import { randomUUID } from "node:crypto";
 import {
   findUserByTunnelToken,
   getUserById,
+  getUserSessionVersion,
   isAppwriteConfigured,
 } from "./appwrite.server";
 import { parseSessionCookie, verifySessionToken } from "./sessionCookie.server";
 import { analyzePrompt, buildEnrichedSystemPrompt } from "~/lib/services/promptAnalyzer";
+import { checkRateLimit } from "~/lib/utils/rateLimit";
 
 const SERVER_VERSION = NIT_SERVER_VERSION;
 
@@ -89,33 +91,65 @@ async function validateTunnelToken(token: string): Promise<{ userId: string } | 
   return findUserByTunnelToken(token);
 }
 
-async function validateBrowserSession(
-  token: string,
-): Promise<{ userId: string; email: string } | null> {
+type VerifiedBrowser = { userId: string; email: string; sessionVersion: number };
+
+async function validateBrowserSession(token: string): Promise<VerifiedBrowser | null> {
   if (!isAppwriteConfigured()) {
     if (token === "dev-session") {
-      return { userId: "dev-user", email: "dev@local" };
+      return { userId: "dev-user", email: "dev@local", sessionVersion: 0 };
     }
     return null;
   }
 
   // verifySessionToken после коммита session-version revocation возвращает
-  // объект { userId, sessionVersion }, а не просто string. Достаём userId.
-  // Примечание: здесь мы НЕ проверяем sessionVersion vs current — WS
-  // auth происходит один раз при upgrade, и revocation проявится при
-  // следующем WS-реконнекте (юзер будет выкинут когда tunnel_status
-  // или heartbeat приходит и session cookie уже невалидна).
+  // объект { userId, sessionVersion }. sessionVersion протаскиваем в
+  // BrowserSession чтобы heartbeat-handler мог сравнивать с current и
+  // закрывать WS при logout-all без ожидания реконнекта.
   const verified = verifySessionToken(token);
   if (!verified) return null;
 
-  return getUserById(verified.userId);
+  const user = await getUserById(verified.userId);
+  if (!user) return null;
+
+  return { ...user, sessionVersion: verified.sessionVersion };
+}
+
+// ─── Tunnel hello rate-limit ──────────────────────────────────────
+//
+// Защита от argon2-DoS: каждый hello валидирует tunnel-token через
+// argon2id с memoryCost=64MB. Без лимита атакующий с одного IP может
+// открыть 100 WS, заслать 100 невалидных hello'в и съесть 6.4GB+CPU.
+//
+// 5 hello/мин/IP — для легитимного клиента более чем достаточно (он шлёт
+// один hello при коннекте + изредка после реконнекта). Для атакующего —
+// блокирует объёмные DoS попытки.
+//
+// Используем существующий checkRateLimit: создаём фейковый Request с
+// служебным заголовком x-request-remote-ip — тот же механизм что server.ts
+// использует для HTTP роутов (см. trust-proxy whitelist).
+
+function checkTunnelHelloRateLimit(req: IncomingMessage): boolean {
+  const remoteIp = req.socket.remoteAddress ?? "";
+  const headers: HeadersInit = remoteIp
+    ? { "x-request-remote-ip": remoteIp }
+    : {};
+  const fakeReq = new Request("http://localhost/__internal/tunnel-hello", {
+    headers,
+  });
+  const rl = checkRateLimit(fakeReq, {
+    scope: "tunnel-hello",
+    windowMs: 60_000,
+    maxRequests: 5,
+  });
+  return rl.allowed;
 }
 
 // ─── Tunnel handler (desktop client → server) ────────────────────
 
-export function handleTunnelConnection(ws: WebSocket, _req: IncomingMessage): void {
+export function handleTunnelConnection(ws: WebSocket, req: IncomingMessage): void {
   const connectionId = randomUUID();
   let authed: TunnelConnection | null = null;
+  let authState: "none" | "pending" | "authed" = "none";
 
   const stopKeepalive = installKeepalive(ws, "tunnel");
 
@@ -153,7 +187,7 @@ export function handleTunnelConnection(ws: WebSocket, _req: IncomingMessage): vo
 
     switch (msg.type) {
       case "hello": {
-        if (authed) {
+        if (authState !== "none") {
           console.log("[tunnel] Duplicate hello, ignoring");
           return;
         }
@@ -166,18 +200,31 @@ export function handleTunnelConnection(ws: WebSocket, _req: IncomingMessage): vo
           return;
         }
 
+        // Rate-limit ДО argon2 verify (см. блок-комментарий выше).
+        if (!checkTunnelHelloRateLimit(req)) {
+          console.log(
+            `[tunnel] Hello rate-limited from ${req.socket.remoteAddress}`,
+          );
+          closeWithError("RATE_LIMITED", "Too many auth attempts, try later");
+          return;
+        }
+
+        authState = "pending";
         const helloMsg = msg;
         void (async () => {
           const user = await validateTunnelToken(helloMsg.token);
+          // pending-sentinel: если за время await параллельный hello уже
+          // отработал и установил authed — выходим.
+          if (authState !== "pending") return;
+
           if (!user) {
+            authState = "none";
             closeWithError("INVALID_TOKEN", "Invalid tunnel token");
             return;
           }
 
-          if (authed) return;
-
           clearTimeout(authTimer);
-
+          authState = "authed";
           authed = {
             connectionId,
             userId: user.userId,
@@ -253,6 +300,10 @@ export function handleTunnelConnection(ws: WebSocket, _req: IncomingMessage): vo
 export function handleControlConnection(ws: WebSocket, req: IncomingMessage): void {
   const sessionId = randomUUID();
   let authed: BrowserSession | null = null;
+  // Race-protection: cookie-path IIFE и onmessage 'auth' могут стартовать
+  // параллельно, оба зайти в await до того как первый успеет установить
+  // authed. Sentinel блокирует второй раннер пока первый в pending.
+  let authState: "none" | "pending" | "authed" = "none";
 
   const stopKeepalive = installKeepalive(ws, "control");
 
@@ -282,8 +333,14 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       return;
     }
 
+    if (authState !== "none") return;
+    authState = "pending";
+
     const user = await validateBrowserSession(token);
+    if (authState !== "pending") return; // другой раннер успел
+
     if (!user) {
+      authState = "none";
       console.log(
         `[control] ✗ Invalid session cookie (token length=${token.length}), closing`,
       );
@@ -291,13 +348,14 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       return;
     }
 
-    if (authed) return;
     clearTimeout(authTimer);
+    authState = "authed";
     authed = {
       sessionId,
       userId: user.userId,
       ws,
       connectedAt: Date.now(),
+      sessionVersion: user.sessionVersion,
     };
     registerBrowser(authed);
     send({
@@ -308,7 +366,7 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       activeTunnels: getTunnelCount(user.userId),
     });
     console.log(
-      `[control] ✓ Browser auto-authed via cookie: user=${user.userId} session=${sessionId} tunnelStatus=${hasTunnelForUser(user.userId) ? "online" : "offline"}`,
+      `[control] ✓ Browser auto-authed via cookie: user=${user.userId} session=${sessionId} v=${user.sessionVersion} tunnelStatus=${hasTunnelForUser(user.userId) ? "online" : "offline"}`,
     );
   })();
 
@@ -322,24 +380,28 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
 
     switch (msg.type) {
       case "auth": {
-        if (authed) return;
+        if (authState !== "none") return;
+        authState = "pending";
 
         const authMsg = msg;
         void (async () => {
           const user = await validateBrowserSession(authMsg.jwt);
+          if (authState !== "pending") return;
+
           if (!user) {
+            authState = "none";
             ws.close(4001, "Auth failed");
             return;
           }
-          if (authed) return;
 
           clearTimeout(authTimer);
-
+          authState = "authed";
           authed = {
             sessionId,
             userId: user.userId,
             ws,
             connectedAt: Date.now(),
+            sessionVersion: user.sessionVersion,
           };
 
           registerBrowser(authed);
@@ -351,7 +413,7 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
             activeTunnels: getTunnelCount(user.userId),
           });
           console.log(
-            `[control] ✓ Browser authed: user=${user.userId} session=${sessionId}`,
+            `[control] ✓ Browser authed: user=${user.userId} session=${sessionId} v=${user.sessionVersion}`,
           );
         })();
         break;
@@ -401,6 +463,36 @@ export function handleControlConnection(ws: WebSocket, req: IncomingMessage): vo
       }
 
       case "heartbeat": {
+        // Heartbeat-revocation: если у юзера sessionVersion в БД больше
+        // чем в нашем токене — сессия отозвана через logout-all/password
+        // change на другом инстансе. Закрываем WS чтобы клиент перешёл
+        // в logged-out state без ожидания реконнекта.
+        //
+        // Cost: 1 Appwrite-RTT в худшем случае, обычно cache-hit (TTL 30s
+        // совпадает с heartbeat-интервалом — амортизированно ~1 RTT/30s/юзер).
+        //
+        // В dev-режиме (без Appwrite) sessionVersion=0, current тоже 0 —
+        // условие не сработает.
+        if (authed && typeof authed.sessionVersion === "number" && isAppwriteConfigured()) {
+          const stored = authed.sessionVersion;
+          const userId = authed.userId;
+          void getUserSessionVersion(userId)
+            .then((current) => {
+              if (current > stored) {
+                console.log(
+                  `[control] Session revoked (v${stored} < current v${current}), closing user=${userId} session=${sessionId}`,
+                );
+                try {
+                  ws.close(4001, "Session revoked");
+                } catch {
+                  // already closed
+                }
+              }
+            })
+            .catch(() => {
+              // fail-open: при сбое Appwrite не выкидываем юзера
+            });
+        }
         send({ type: "heartbeat_ack" });
         break;
       }

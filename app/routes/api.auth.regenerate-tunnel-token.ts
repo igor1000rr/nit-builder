@@ -7,6 +7,7 @@ import {
   deleteSession,
 } from "~/lib/server/appwrite.server";
 import { checkRateLimit } from "~/lib/utils/rateLimit";
+import { revokeUserTunnels } from "~/lib/services/tunnelRegistry.server";
 
 // ─── Validation ─────────────────────────────────────────────────────
 // Require password re-entry for sensitive operation (regenerating token
@@ -77,8 +78,27 @@ export async function action({ request }: ActionFunctionArgs) {
   // Regenerate token
   try {
     const newToken = await regenerateTunnelToken(user.userId);
+
+    // Принудительно закрываем все живые туннели юзера. Без этого старый
+    // tunnel-клиент остаётся подключённым с уже верифицированным токеном —
+    // argon2 verify происходит только на hello, а WS живёт до естественного
+    // close. На других инстансах туннель рано или поздно реконнектится и
+    // отвалится с INVALID_TOKEN, но manual close мгновенно прекращает приём
+    // generate-запросов на этом сервере.
+    const closedTunnels = revokeUserTunnels(
+      user.userId,
+      4001,
+      "Tunnel token regenerated",
+    );
+    if (closedTunnels > 0) {
+      console.log(
+        `[api.auth.regenerate-tunnel-token] Closed ${closedTunnels} active tunnel(s) for user=${user.userId}`,
+      );
+    }
+
     return Response.json({
       tunnelToken: newToken,
+      closedTunnels,
       message:
         "New tunnel token generated. Save it now — the old token has been revoked.",
     });

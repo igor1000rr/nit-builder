@@ -280,15 +280,6 @@ export function unregisterBrowser(sessionId: string): void {
   }
 }
 
-/**
- * Получить session-version юзера для активной browser сессии. Используется
- * heartbeat-revocation: вызывается на каждом heartbeat, сравнивается с
- * сохранённым sessionVersion в session. Если current > stored — закрыть WS.
- */
-export function getBrowserSession(sessionId: string): BrowserSession | null {
-  return browsers.get(sessionId) ?? null;
-}
-
 function broadcastTunnelStatus(userId: string): void {
   const sessions = browsersByUser.get(userId);
   if (!sessions) return;

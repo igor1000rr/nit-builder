@@ -122,7 +122,8 @@ function inferPrimaryCta(query: string, current: string): string {
   if (/мастер-класс|гончар|керамик|двоих|романтическ/i.test(query)) {
     return "Записаться на мастер-класс";
   }
-  if (/запис|при[её]м|сеанс|консультац/i.test(query)) return "Записаться";
+  if (/консультац/i.test(query)) return "Получить консультацию";
+  if (/запис|при[её]м|сеанс/i.test(query)) return "Записаться";
   if (/попроб|демо|saas|edtech|платформ/i.test(query)) return "Попробовать демо";
   if (/заказ|доставк/i.test(query)) return "Оформить заказ";
   return current || "Связаться";

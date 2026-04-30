@@ -30,6 +30,7 @@
     "shared:build": "npm run build --workspace shared",
     "migrate:appwrite": "tsx scripts/appwrite-migrate.ts",
     "eval": "tsx scripts/runEval.ts",
+    "eval:html": "tsx scripts/runHtmlSmoke.ts",
     "eval:nightly": "tsx scripts/runEval.ts --label=nightly --compare-last --fail-on-regression",
     "eval:trend": "tsx scripts/evalTrend.ts"
   },

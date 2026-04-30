@@ -254,6 +254,35 @@ function injectCtaMicrocopy(
   };
 }
 
+function replaceHeroPrimaryCta(
+  html: string,
+  ctaText: string,
+): { html: string; replaced: boolean } {
+  const heroRange = findSectionRange(html, "hero");
+  if (!heroRange || !ctaText.trim()) return { html, replaced: false };
+
+  const sectionHtml = html.slice(heroRange.start, heroRange.end);
+  const anchorMatch = sectionHtml.match(/<a\b[^>]*>[\s\S]*?<\/a>/i);
+  if (!anchorMatch || anchorMatch.index === undefined) {
+    return { html, replaced: false };
+  }
+
+  const openEndInAnchor = anchorMatch[0].indexOf(">");
+  if (openEndInAnchor < 0) return { html, replaced: false };
+
+  const textStart = heroRange.start + anchorMatch.index + openEndInAnchor + 1;
+  const textEnd =
+    heroRange.start +
+    anchorMatch.index +
+    anchorMatch[0].length -
+    "</a>".length;
+
+  return {
+    html: html.slice(0, textStart) + escapeHtml(ctaText) + html.slice(textEnd),
+    replaced: true,
+  };
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // EXTENDED SLOTS (Tier 4)
 // ───────────────────────────────────────────────────────────────────────
@@ -627,6 +656,7 @@ export function injectPlanIntoTemplate(
     { name: "hero_subheadline", required: false, available: !!plan.hero_subheadline },
     { name: "key_benefits", required: false, available: (plan.key_benefits?.length ?? 0) >= 3 },
     { name: "social_proof", required: false, available: !!plan.social_proof_line },
+    { name: "cta_primary", required: false, available: !!plan.cta_primary },
     { name: "cta_microcopy", required: false, available: !!plan.cta_microcopy },
     { name: "title", required: false, available: !!plan.business_type },
   ];
@@ -734,7 +764,16 @@ export function injectPlanIntoTemplate(
     }
   }
 
-  // 6. CTA microcopy
+  // 6. Primary CTA button
+  if (plan.cta_primary) {
+    const r = replaceHeroPrimaryCta(html, plan.cta_primary);
+    if (r.replaced) {
+      html = r.html;
+      filled++;
+    }
+  }
+
+  // 7. CTA microcopy
   if (plan.cta_microcopy) {
     const r = injectCtaMicrocopy(html, plan.cta_microcopy);
     if (r.replaced) {

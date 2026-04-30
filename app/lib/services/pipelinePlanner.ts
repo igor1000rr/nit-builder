@@ -35,6 +35,7 @@ import {
   generatePlanConstrained,
   isConstrainedDecodingEnabled,
 } from "~/lib/services/constrainedPlanGen";
+import { normalizePlanForRequest } from "~/lib/services/planQuality";
 import { SCOPE } from "~/lib/services/htmlOrchestrator.helpers";
 
 export type ObtainedPlan = {
@@ -117,10 +118,11 @@ export async function obtainPlan(
       signal,
     });
     if (constrained.ok) {
-      setCachedPlan(sanitizedMessage, constrained.plan);
+      const plan = normalizePlanForRequest(constrained.plan, sanitizedMessage);
+      setCachedPlan(sanitizedMessage, plan);
       logger.info(SCOPE, "Plan generated via constrained decoding");
       return {
-        plan: constrained.plan,
+        plan,
         cached: false,
         fewShotCount,
         fewShotTopScore,
@@ -144,9 +146,10 @@ export async function obtainPlan(
       abortSignal: signal,
       maxOutputTokens: 2500,
     });
-    setCachedPlan(sanitizedMessage, object);
+    const plan = normalizePlanForRequest(object, sanitizedMessage);
+    setCachedPlan(sanitizedMessage, plan);
     return {
-      plan: object,
+      plan,
       cached: false,
       fewShotCount,
       fewShotTopScore,
@@ -180,9 +183,10 @@ export async function obtainPlan(
 
     const parsed = rawJson !== null ? PlanSchema.safeParse(rawJson) : null;
     if (parsed?.success) {
-      setCachedPlan(sanitizedMessage, parsed.data);
+      const plan = normalizePlanForRequest(parsed.data, sanitizedMessage);
+      setCachedPlan(sanitizedMessage, plan);
       return {
-        plan: parsed.data,
+        plan,
         cached: false,
         fewShotCount,
         fewShotTopScore,
@@ -208,8 +212,9 @@ export async function obtainPlan(
     language: "ru",
     suggested_template_id: "blank-landing",
   };
+  const plan = normalizePlanForRequest(synthetic, sanitizedMessage);
   return {
-    plan: synthetic,
+    plan,
     cached: false,
     fewShotCount,
     fewShotTopScore,

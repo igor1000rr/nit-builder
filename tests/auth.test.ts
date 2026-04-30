@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { checkCsrf } from "~/lib/server/auth";
+import { authOrGuest, checkCsrf } from "~/lib/server/auth";
 import { createHash } from "node:crypto";
 import { checkRateLimit } from "~/lib/utils/rateLimit";
 
@@ -153,6 +153,28 @@ describe("checkCsrf", () => {
     });
     const res = checkCsrf(req);
     expect(res?.status).toBe(403);
+  });
+});
+
+describe("authOrGuest", () => {
+  beforeEach(() => {
+    delete process.env.NIT_API_SECRET;
+  });
+
+  afterEach(() => {
+    delete process.env.NIT_API_SECRET;
+  });
+
+  it("treats anonymous requests as guests when legacy secret is not configured", async () => {
+    const req = makeRequest({
+      method: "POST",
+      host: "nit.by",
+      origin: "https://nit.by",
+    });
+
+    const result = await authOrGuest(req);
+    expect(result).toMatchObject({ isGuest: true });
+    expect(result.csrfError).toBeUndefined();
   });
 });
 

@@ -95,6 +95,7 @@ const cleanupTimer = setInterval(() => {
     if (now - s.updatedAt > SESSION_TTL_MS) sessions.delete(id);
   }
 }, 60 * 60 * 1000);
+cleanupTimer.unref?.();
 
 if (typeof process !== "undefined") {
   process.on?.("SIGTERM", () => clearInterval(cleanupTimer));

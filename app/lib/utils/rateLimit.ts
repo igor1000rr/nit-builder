@@ -12,6 +12,7 @@ const cleanupTimer = setInterval(() => {
     if (latest < cutoff) store.delete(key);
   }
 }, 5 * 60 * 1000);
+cleanupTimer.unref?.();
 
 if (typeof process !== "undefined") {
   process.on?.("SIGTERM", () => clearInterval(cleanupTimer));

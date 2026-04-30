@@ -56,6 +56,11 @@ import type {
   OrchestratorOptions,
 } from "~/lib/services/htmlOrchestrator.types";
 
+function htmlContainsPrimaryCta(html: string, plan: Plan): boolean {
+  if (!plan.cta_primary?.trim()) return true;
+  return html.toLowerCase().includes(plan.cta_primary.toLowerCase());
+}
+
 export async function* executeHtmlSimple(
   memory: SessionMemory,
   userMessage: string,
@@ -141,7 +146,7 @@ export async function* executeHtmlSimple(
   const cleanTemplateHtml = loadTemplateHtml(template.id);
   const injection = injectPlanIntoTemplate(cleanTemplateHtml, currentPlan);
 
-  if (injection.ok) {
+  if (injection.ok && htmlContainsPrimaryCta(injection.html, currentPlan)) {
     metrics.skeletonInjectSucceeded(template.id, injection.fillRatio);
     metrics.skeletonExtendedSlotsFilled(injection.extendedSlotsFilled);
     const finalHtml = stripCodeFences(injection.html);
@@ -183,8 +188,9 @@ export async function* executeHtmlSimple(
     return;
   }
 
-  metrics.skeletonInjectSkipped(injection.reason);
-  logger.info(SCOPE, `Skeleton-injection пропущена (${injection.reason}), вызываем Coder`);
+  const skeletonSkipReason = injection.ok ? "missing_primary_cta" : injection.reason;
+  metrics.skeletonInjectSkipped(skeletonSkipReason);
+  logger.info(SCOPE, `Skeleton-injection пропущена (${skeletonSkipReason}), вызываем Coder`);
 
   const rawTemplateHtml = loadTemplateHtmlForLlm(template.id);
   const pruneResult = pruneTemplateForPlan(rawTemplateHtml, currentPlan.sections);

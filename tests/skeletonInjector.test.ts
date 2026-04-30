@@ -76,6 +76,18 @@ describe("injectPlanIntoTemplate", () => {
     }
   });
 
+  it("подставляет cta_primary в первую hero-кнопку", () => {
+    const r = injectPlanIntoTemplate(BASE_TEMPLATE, {
+      ...FULL_PLAN,
+      cta_primary: "Забронировать столик",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.html).toContain(">Забронировать столик</a>");
+      expect(r.html).not.toContain(">CTA</a>");
+    }
+  });
+
   it("подставляет все 3 benefits в features-секцию", () => {
     const r = injectPlanIntoTemplate(BASE_TEMPLATE, FULL_PLAN);
     expect(r.ok).toBe(true);

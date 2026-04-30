@@ -160,9 +160,14 @@ export async function authOrGuest(
     // не роняем запрос, а пытаемся через legacy / пропускаем как гостя.
   }
 
-  // 2. Legacy NIT_API_SECRET (bearer или cookie)
-  const legacyResult = legacyAuthCheck(request);
-  if (legacyResult === null) return { isGuest: false };
+  // 2. Legacy NIT_API_SECRET (bearer или cookie). Важно: при отсутствующем
+  // секрете legacyAuthCheck возвращает null как "legacy disabled", а не как
+  // "authenticated". Поэтому запускаем fallback только когда secret реально
+  // настроен; иначе анонимный запрос должен остаться гостевым.
+  if (getSecret()) {
+    const legacyResult = legacyAuthCheck(request);
+    if (legacyResult === null) return { isGuest: false };
+  }
 
   // 3. Гость
   return { isGuest: true };

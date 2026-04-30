@@ -11,6 +11,10 @@ let mockCoderChunks: string[] = [];
 let mockShouldThrow: Error | null = null;
 
 vi.mock("ai", () => ({
+  generateObject: vi.fn(async () => {
+    if (mockShouldThrow) throw mockShouldThrow;
+    throw new Error("generateObject disabled in htmlOrchestrator unit tests");
+  }),
   generateText: vi.fn(async () => {
     if (mockShouldThrow) throw mockShouldThrow;
     return { text: mockPlannerResponse };
@@ -46,6 +50,9 @@ vi.mock("~/lib/llm/client", async () => {
 // ─── Helpers ─────────────────────────────────────────────
 
 let testCounter = 0;
+const originalConstrainedDecoding = process.env.NIT_CONSTRAINED_DECODING_ENABLED;
+const originalPlanReasoning = process.env.NIT_PLAN_REASONING_ENABLED;
+const originalSkeletonInject = process.env.NIT_SKELETON_INJECT_ENABLED;
 
 function makeMemory(sessionId?: string, projectId?: string): SessionMemory {
   testCounter++;
@@ -97,12 +104,21 @@ const VALID_HTML_OUTPUT = "<!DOCTYPE html><html><body><h1>Coffee</h1></body></ht
 describe("executeHtmlSimple", () => {
   beforeEach(() => {
     clearPlanCache();
+    process.env.NIT_CONSTRAINED_DECODING_ENABLED = "0";
+    process.env.NIT_PLAN_REASONING_ENABLED = "0";
+    process.env.NIT_SKELETON_INJECT_ENABLED = "0";
     mockPlannerResponse = VALID_PLAN_JSON;
     mockCoderChunks = ["<!DOCTYPE ", "html><html><body>", "<h1>Coffee</h1></body></html>"];
     mockShouldThrow = null;
   });
 
   afterEach(() => {
+    if (originalConstrainedDecoding === undefined) delete process.env.NIT_CONSTRAINED_DECODING_ENABLED;
+    else process.env.NIT_CONSTRAINED_DECODING_ENABLED = originalConstrainedDecoding;
+    if (originalPlanReasoning === undefined) delete process.env.NIT_PLAN_REASONING_ENABLED;
+    else process.env.NIT_PLAN_REASONING_ENABLED = originalPlanReasoning;
+    if (originalSkeletonInject === undefined) delete process.env.NIT_SKELETON_INJECT_ENABLED;
+    else process.env.NIT_SKELETON_INJECT_ENABLED = originalSkeletonInject;
     vi.clearAllMocks();
   });
 

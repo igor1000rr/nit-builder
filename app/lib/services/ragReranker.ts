@@ -61,6 +61,7 @@ function cacheKey(query: string, docId: string): string {
 function timeoutSignal(ms: number, parent?: AbortSignal): AbortSignal {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
+  timer.unref?.();
   if (parent) {
     if (parent.aborted) controller.abort();
     else parent.addEventListener("abort", () => controller.abort(), { once: true });

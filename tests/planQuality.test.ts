@@ -59,6 +59,17 @@ describe("normalizePlanForRequest", () => {
     expect(plan.cta_primary).toContain("мастер-класс");
   });
 
+  it("понимает разговорные опечатки про пекарню", () => {
+    const plan = normalizePlanForRequest(
+      { ...BASE_PLAN, suggested_template_id: "beauty-master", keywords: ["косметика"] },
+      "ну тип нужон сайтик для маей пакарни нюансики обсудим патом главное чтоб красиво",
+    );
+
+    expect(plan.suggested_template_id).toBe("coffee-shop");
+    expect(plan.sections).toContain("menu");
+    expect(plan.keywords).toEqual(expect.arrayContaining(["пекарня", "хлеб"]));
+  });
+
   it("добавляет services и keywords для химчистки мебели", () => {
     const plan = normalizePlanForRequest(
       BASE_PLAN,

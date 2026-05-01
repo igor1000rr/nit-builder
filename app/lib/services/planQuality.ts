@@ -15,7 +15,7 @@ const BANNED_REPLACEMENTS: Array<[RegExp, string]> = [
 ];
 
 const SECTION_RULES: Array<{ pattern: RegExp; sections: string[] }> = [
-  { pattern: /кофе|кофейн|кафе|ресторан|пицц|паста|пекарн|хлеб|бариста|пиво|пивовар|тапрум|brewery/i, sections: ["menu"] },
+  { pattern: /кофе|кофейн|кафе|ресторан|пицц|паста|пекарн|пакарн|пекарн|хлеб|булоч|выпеч|бариста|пиво|пивовар|тапрум|brewery/i, sections: ["menu"] },
   { pattern: /фитнес|йог|пилатес|растяж|трениров|ретрит|танц|курс|школ|репетитор|ielts|урок|детск|развивающ|центр для детей|нутрициолог|питани|кбжу/i, sections: ["programs"] },
   { pattern: /saas|b2b|аналитик|сервис|приложен|стартап|crm/i, sections: ["features"] },
   { pattern: /стомат|клиник|врач|лечен|барбер|стриж|брить|юрист|адвокат|клининг|уборк|химчист|реставрац|мебел|диван|ковр|массаж|ветеринар|автосервис|ремонт/i, sections: ["services"] },
@@ -31,11 +31,11 @@ const SECTION_RULES: Array<{ pattern: RegExp; sections: string[] }> = [
 const TEMPLATE_RULES: Array<{ pattern: RegExp; templateId: string }> = [
   { pattern: /перевод|переводчик|локализац|германи|израил/i, templateId: "blank-landing" },
   { pattern: /стомат|клиник|медцентр|врач|лечен/i, templateId: "medical-clinic" },
-  { pattern: /юрист|адвокат|право|m&a|налог|суд|договор|инвестор|опцион/i, templateId: "legal-firm" },
+  { pattern: /юрист|адвокат|право|m&a|налог|судеб|(^|[\s,.;:!?-])суд($|[\s,.;:!?-])|договор|инвестор|опцион/i, templateId: "legal-firm" },
   { pattern: /saas|b2b|аналитик|приложен|edtech|lms|платформ|стартап|digital|crm/i, templateId: "saas-landing" },
   { pattern: /фитнес|тренер|трениров|тренаж[её]рн\w*\s+зал|спортзал|похуден/i, templateId: "fitness-trainer" },
   { pattern: /йог|пилатес|ретрит|медитац|wellness/i, templateId: "yoga-studio" },
-  { pattern: /кофе|кофей|coffee|specialty|спешелти|кафе|пекарн|хлеб|бариста|бранч|обжар|cupping/i, templateId: "coffee-shop" },
+  { pattern: /кофе|кофей|coffee|specialty|спешелти|кафе|пекарн|пакарн|хлеб|булоч|выпеч|бариста|бранч|обжар|cupping/i, templateId: "coffee-shop" },
   { pattern: /ресторан|пицц|паста|кухн|шеф/i, templateId: "restaurant" },
   { pattern: /салон красоты|маникюр|бров|ресниц|визаж|косметолог|окрашив|премиум сегмент/i, templateId: "beauty-master" },
   { pattern: /тату|tattoo|ink/i, templateId: "tattoo-studio" },
@@ -95,6 +95,8 @@ function addKeywordHints(keywords: string[], query: string): string[] {
   if (/кбжу/i.test(query)) hints.push("КБЖУ");
   if (/детск|центр для детей|развивающ/i.test(query)) hints.push("детский центр");
   if (/тату/i.test(query)) hints.push("тату");
+  if (/пакарн|пекарн/i.test(query)) hints.push("пекарня");
+  if (/пакарн|пекарн|хлеб|булоч|выпеч/i.test(query)) hints.push("хлеб");
   if (/химчист/i.test(query)) hints.push("химчистка");
   if (/диван/i.test(query)) hints.push("диван");
   if (/ковр/i.test(query)) hints.push("ковер");
@@ -255,7 +257,7 @@ export function normalizePlanForRequest(plan: Plan, query: string): Plan {
   const inferredTemplate = inferTemplateId(query);
   if (inferredTemplate && getTemplateById(inferredTemplate)) {
     const currentExists = getTemplateById(normalized.suggested_template_id);
-    const strongTemplateHint = /стомат|клиник|saas|edtech|платформ|фитнес|йог|кофе|спешелти|обжар|cupping|ресторан|барбер|юрист|фотограф|архитектур|интерьер|loft|английск|маникюр|салон|торт|цвет|букет|флорист|перевод|германи|израил|тату/i.test(query);
+    const strongTemplateHint = /стомат|клиник|saas|edtech|платформ|фитнес|йог|кофе|кофей|спешелти|обжар|cupping|пекарн|пакарн|хлеб|булоч|выпеч|ресторан|барбер|юрист|фотограф|архитектур|интерьер|loft|английск|маникюр|салон|торт|цвет|букет|флорист|перевод|германи|израил|тату/i.test(query);
     if (!currentExists || normalized.suggested_template_id === "blank-landing" || strongTemplateHint) {
       normalized.suggested_template_id = inferredTemplate;
     }
